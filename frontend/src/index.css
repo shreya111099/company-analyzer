@@ -1,0 +1,347 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface-hover: #22263a;
+  --border: #2e3248;
+  --accent: #4f7cff;
+  --accent-dark: #3a63e0;
+  --accent-light: #7da0ff;
+  --text: #e8eaf6;
+  --text-muted: #8892b0;
+  --text-dim: #536183;
+  --success: #3ecf8e;
+  --error-bg: #2a1515;
+  --error-border: #7f2020;
+  --error-text: #f87171;
+  --radius: 10px;
+  --radius-sm: 6px;
+  font-size: 15px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Layout ── */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main {
+  flex: 1;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+/* ── Header ── */
+
+.header {
+  background: linear-gradient(135deg, #141828 0%, #1a2040 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 2.5rem 1.25rem 2rem;
+  text-align: center;
+}
+
+.header-inner {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.logo {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent-light), #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.tagline {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Search form ── */
+
+.search-form {
+  margin: 2rem 0 1.5rem;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.company-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.company-input::placeholder {
+  color: var(--text-dim);
+}
+
+.company-input:focus {
+  border-color: var(--accent);
+}
+
+.company-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.analyze-btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.analyze-btn:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.analyze-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.loading-hint {
+  margin-top: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ── Spinner ── */
+
+.spinner-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 0;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner-text {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ── Error ── */
+
+.error-box {
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ── Results ── */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.results-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.copy-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.copy-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.copy-btn--success {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+/* ── Accordion ── */
+
+.accordion {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.accordion--open {
+  border-color: #3a4070;
+}
+
+.accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.accordion-header:hover {
+  background: var(--surface-hover);
+}
+
+.accordion-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+}
+
+.accordion-chevron {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.accordion-body {
+  border-top: 1px solid var(--border);
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+/* ── Field list ── */
+
+.field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+}
+
+.field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+}
+
+.field-value {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* ── Footer ── */
+
+.footer {
+  text-align: center;
+  padding: 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 600px) {
+  .logo {
+    font-size: 1.5rem;
+  }
+
+  .input-row {
+    flex-direction: column;
+  }
+
+  .analyze-btn {
+    width: 100%;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .results-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
