@@ -9,6 +9,7 @@
 
 import pLimit from 'p-limit';
 import { callModel } from './providers.js';
+import { gatherSources } from './grounding.js';
 import {
   DOMAIN_AGENTS,
   FRAMING_AGENT,
@@ -128,6 +129,19 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     return { analysis, synthesis: null, meta, mismatch: true };
   }
 
+  // ── 0.5. Grounding: gather real web sources (Gemini Google Search) ──
+  // The grounded brief becomes the shared context for every domain agent, and
+  // the sources are shown to the user as citations. Fails soft.
+  let framing = '';
+  let sources = [];
+  emit('grounding', { query });
+  const grounded = await gatherSources(mode, query);
+  if (grounded) {
+    framing = grounded.brief || '';
+    sources = grounded.sources || [];
+  }
+  emit('sources', { sources });
+
   // Announce the planned agent roster up front so the UI can render the list.
   emit('plan', {
     mode,
@@ -140,9 +154,8 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     })),
   });
 
-  // ── 1. Framing (skipped in scaled-down mode) ──
-  let framing = '';
-  if (ENABLE_FRAMING) {
+  // ── 1. Framing (opt-in) — only if grounding didn't already supply context ──
+  if (ENABLE_FRAMING && !framing) {
     emit('agent:running', { key: 'framing', label: FRAMING_AGENT.label });
     try {
       const r = await runAgent(FRAMING_AGENT, [mode, query]);
@@ -196,6 +209,6 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     }
   }
 
-  emit('complete', { analysis, synthesis, meta, framing });
-  return { analysis, synthesis, meta, framing };
+  emit('complete', { analysis, synthesis, meta, sources });
+  return { analysis, synthesis, meta, sources };
 }

@@ -4,7 +4,7 @@ import { SECTIONS, SYNTHESIS_FIELDS, sectionLabel } from './schema.js';
 // Build a structured, multi-page PDF from a tab's analysis data. Generated from
 // the data (not the DOM), so every domain is included regardless of which
 // accordions are open.
-export function exportAnalysisPdf(mode, query, analysis, synthesis) {
+export function exportAnalysisPdf(mode, query, analysis, synthesis, sources = []) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
 
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -94,6 +94,18 @@ export function exportAnalysisPdf(mode, query, analysis, synthesis) {
       write(value, { size: 10, gap: 8 });
     }
     y += 4;
+  }
+
+  // ── Sources ──
+  if (sources && sources.length) {
+    ensure(30);
+    rule();
+    write('Sources', { size: 13, style: 'bold', color: ACCENT, gap: 6 });
+    sources.forEach((s, i) => {
+      write(`${i + 1}.  ${s.title}`, { size: 9, gap: 1 });
+      if (s.url) write(s.url, { size: 8, color: MUTED, x: M + 14, gap: 5 });
+    });
+    write('Grounded via Google Search.', { size: 8, color: MUTED, gap: 4 });
   }
 
   // ── Page footer numbers ──

@@ -172,7 +172,7 @@ export const SYNTHESIS_FIELDS = [
   { key: 'keyQuestionsForDiligence', label: 'Key Questions for Diligence' },
 ];
 
-export function formatAsInterviewNotes(mode, query, analysis, synthesis) {
+export function formatAsInterviewNotes(mode, query, analysis, synthesis, sources = []) {
   const heading = mode === 'sector' ? 'SECTOR ANALYSIS' : 'COMPANY ANALYSIS';
   const lines = [`${heading}: ${query.toUpperCase()}`, '='.repeat(60), ''];
 
@@ -214,7 +214,17 @@ export function formatAsInterviewNotes(mode, query, analysis, synthesis) {
     lines.push('');
   }
 
-  lines.push(`Generated ${new Date().toLocaleDateString()} via Company Analyzer`);
+  if (sources && sources.length) {
+    lines.push('## Sources');
+    lines.push('-'.repeat(40));
+    sources.forEach((s, i) => {
+      lines.push(`[${i + 1}] ${s.title}`);
+      if (s.url) lines.push(`    ${s.url}`);
+    });
+    lines.push('');
+  }
+
+  lines.push(`Generated ${new Date().toLocaleDateString()} via Strategic Analyzer`);
 
   return lines.join('\n');
 }
