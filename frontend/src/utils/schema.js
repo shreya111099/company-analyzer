@@ -148,14 +148,58 @@ export const SECTIONS = [
   },
 ];
 
-export function formatAsInterviewNotes(companyName, analysis) {
-  const lines = [`COMPANY ANALYSIS: ${companyName.toUpperCase()}`, '='.repeat(60), ''];
+// Section-label overrides when analyzing a whole sector rather than a company.
+// Falls back to the company-mode label when a key isn't overridden.
+const SECTOR_SECTION_LABELS = {
+  strategyAndMarket: 'Market Structure & Strategy',
+  businessModel: 'Industry Business Models',
+  competition: 'Competitive Landscape',
+  financials: 'Sector Economics',
+  customerAndService: 'Demand & Customers',
+};
+
+export function sectionLabel(section, mode) {
+  return mode === 'sector'
+    ? SECTOR_SECTION_LABELS[section.key] || section.label
+    : section.label;
+}
+
+// Shape of the synthesis agent's output, used by SynthesisCard and the export.
+export const SYNTHESIS_FIELDS = [
+  { key: 'keyStrengths', label: 'Key Strengths' },
+  { key: 'keyWeaknesses', label: 'Key Weaknesses' },
+  { key: 'strategicRecommendations', label: 'Strategic Recommendations' },
+  { key: 'keyQuestionsForDiligence', label: 'Key Questions for Diligence' },
+];
+
+export function formatAsInterviewNotes(mode, query, analysis, synthesis) {
+  const heading = mode === 'sector' ? 'SECTOR ANALYSIS' : 'COMPANY ANALYSIS';
+  const lines = [`${heading}: ${query.toUpperCase()}`, '='.repeat(60), ''];
+
+  if (synthesis) {
+    lines.push('## Strategic Synthesis');
+    lines.push('-'.repeat(40));
+    if (synthesis.executiveSummary) {
+      lines.push('Executive Summary:');
+      lines.push(`  ${synthesis.executiveSummary}`);
+      lines.push('');
+    }
+    for (const field of SYNTHESIS_FIELDS) {
+      const items = synthesis[field.key];
+      if (Array.isArray(items) && items.length) {
+        lines.push(`${field.label}:`);
+        for (const item of items) if (item) lines.push(`  • ${item}`);
+        lines.push('');
+      }
+    }
+    lines.push('');
+  }
 
   for (const section of SECTIONS) {
     const data = analysis[section.key];
     if (!data) continue;
 
-    lines.push(`## ${section.label}`);
+    lines.push(`## ${sectionLabel(section, mode)}`);
     lines.push('-'.repeat(40));
 
     for (const field of section.fields) {

@@ -1,20 +1,35 @@
-# Company Analyzer
+# Strategic Analyzer
 
-An MBA case-interview tool that analyzes any company across a full **Tech + Business Value Chain** framework using Google Gemini 2.5 Flash.
+A **multi-agent, multi-model** strategic analysis tool. Analyze either a **company** or a whole
+**sector/industry** across the full **Tech + Business Value Chain** framework. Twelve independent
+domain agents fan out in parallel across free-tier models, then a synthesis agent produces an
+executive assessment.
 
 ## What it does
 
-Enter a company name and get a structured analysis across 11 categories (~60 fields):
+Pick a mode (**Company** or **Sector**), enter a name, and watch ~14 agents run live:
 
-- Tech Value Chain (R&D, architecture, data moat, AI/ML…)
-- Strategy & Market (TAM, market share, network effects…)
-- Business Model (revenue streams, unit economics…)
-- Supply / Input, Operations, Distribution
-- Sales & Marketing, Customer / Service
-- Financials (revenue, margins, valuation…)
-- Competition, Risks & Future
+1. A **framing agent** establishes shared context (definition, segments/competitors, scale).
+2. **12 domain agents** each analyze one value-chain dimension in parallel — Tech Value Chain,
+   AI Innovation, Strategy & Market, Business Model, Supply, Operations, Distribution, Sales &
+   Marketing, Customer/Service, Financials, Competition, Risks & Future (~60 fields total).
+3. A **synthesis agent** returns an executive summary, key strengths/weaknesses, strategic
+   recommendations, and diligence questions.
 
-Results display as collapsible accordion sections. A **"Copy as interview notes"** button exports clean plain text.
+Agents are distributed across providers to stay **free** and spread each provider's rate limits.
+Results stream in live (per-agent progress), render as a synthesis card plus collapsible
+accordions with a per-section model badge, and export via **"Copy as interview notes"**.
+
+### Multi-model setup (all free tier)
+
+| Agents | Provider | Model |
+|--------|----------|-------|
+| ~6 domain agents | **Groq** | `llama-3.3-70b-versatile` |
+| ~6 domain agents | **Hugging Face** | `meta-llama/Llama-3.1-8B-Instruct` |
+| Framing + Synthesis | **Google Gemini** | `gemini-2.5-flash` |
+
+Missing keys **fall back to Gemini**, so the app runs with just `GEMINI_API_KEY` — but Gemini's
+free tier is tight (5 req/min, 20/day), so adding the free Groq + HF keys is recommended.
 
 ---
 
@@ -68,12 +83,18 @@ cd frontend && npm install && cd ..
 cp backend/.env.example backend/.env
 ```
 
-Open `backend/.env` and replace `your_api_key_here` with your actual key:
+Open `backend/.env` and add your keys:
 
 ```
-GEMINI_API_KEY=AIzaSy...yourkey...
+GEMINI_API_KEY=AIzaSy...yourkey...   # required
+GROQ_API_KEY=gsk_...                 # optional, free at console.groq.com
+HF_TOKEN=hf_...                      # optional, free at huggingface.co/settings/tokens
+AGENT_CONCURRENCY=4
 PORT=3001
 ```
+
+`GROQ_API_KEY` and `HF_TOKEN` are optional but recommended — without them all agents fall back
+to Gemini and quickly hit its free-tier limit.
 
 ---
 
@@ -94,7 +115,9 @@ This starts both servers concurrently:
 
 Open **http://localhost:5173** in your browser, type a company name, and click **Analyze**.
 
-> **Note:** Each analysis makes one large Gemini call (up to 8,192 output tokens). Expect **15–30 seconds** for a full response.
+> **Note:** Each analysis fans out ~14 model calls across providers. Expect **20–45 seconds**
+> for a full run; agents stream in live as they complete, and any that fail (usually a free-tier
+> rate limit) are marked "unavailable" without blocking the rest.
 
 ---
 
@@ -103,24 +126,29 @@ Open **http://localhost:5173** in your browser, type a company name, and click *
 ```
 company-analyzer/
 ├── backend/
-│   ├── index.js          # Express server + Gemini call
-│   ├── .env              # Your API key (git-ignored)
-│   ├── .env.example      # Template
+│   ├── index.js              # Express server: SSE stream + JSON fallback
+│   ├── orchestrator.js       # framing → parallel fan-out → merge → synthesis
+│   ├── providers.js          # unified callModel across Gemini / Groq / HF (+ retry, fallback)
+│   ├── agents/registry.js    # 14 agent definitions + provider assignment
+│   ├── config/schema.js      # the 12 value-chain domains (shared source of truth)
+│   ├── .env / .env.example
 │   └── package.json
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx
+│   │   ├── App.jsx           # mode toggle + SSE consumption + results
 │   │   ├── index.css
 │   │   ├── main.jsx
 │   │   ├── components/
-│   │   │   ├── AccordionSection.jsx
-│   │   │   └── LoadingSpinner.jsx
+│   │   │   ├── ModeToggle.jsx
+│   │   │   ├── ProgressTracker.jsx
+│   │   │   ├── SynthesisCard.jsx
+│   │   │   └── AccordionSection.jsx
 │   │   └── utils/
-│   │       └── schema.js   # Section/field definitions + copy formatter
+│   │       └── schema.js     # section labels + synthesis shape + copy formatter
 │   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
-├── package.json          # Root scripts (concurrently)
+├── package.json              # Root scripts (concurrently)
 └── README.md
 ```
 

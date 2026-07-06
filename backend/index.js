@@ -1,176 +1,90 @@
+import 'dotenv/config'; // load env before any module reads process.env
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
-
-dotenv.config();
+import { runAnalysis } from './orchestrator.js';
+import { availableProviders } from './providers.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-const SYSTEM_INSTRUCTION = `You are an MBA case-interview coach with deep expertise in company analysis. When given a company name, produce a thorough analysis across the full Tech + Business Value Chain framework. Rules:
-1. Every field must be 1-3 sentences, specific and grounded in what is actually known about this company — no generic MBA boilerplate.
-2. If a specific figure or fact is uncertain or estimated, include the label "(estimated)" rather than stating it as confirmed fact.
-3. Respond with ONLY a valid JSON object. No markdown code fences, no preamble, no trailing commentary — just the raw JSON.`;
-
-const SCHEMA_TEMPLATE = {
-  techValueChain: {
-    rdAndInnovation: "",
-    productArchitecture: "",
-    dataMoat: "",
-    platformEcosystem: "",
-    buildVsBuy: "",
-    techTalent: "",
-    aiMlCapabilities: ""
-  },
-  aiInnovationAndAdoption: {
-    aiStrategy: "",
-    aiProducts: "",
-    aiInfrastructureAndCompute: "",
-    dataAssetsForAi: "",
-    aiTalentAndResearch: "",
-    aiPartnershipsAndInvestments: "",
-    aiMonetization: "",
-    internalAiAdoption: "",
-    aiRegulatoryAndEthicsStance: "",
-    aiCompetitivePosition: ""
-  },
-  strategyAndMarket: {
-    coreStrategy: "",
-    totalAddressableMarket: "",
-    marketShare: "",
-    growthRate: "",
-    geographicPresence: "",
-    networkEffects: "",
-    competitivePositioning: ""
-  },
-  businessModel: {
-    revenueModel: "",
-    revenueStreams: "",
-    pricingStrategy: "",
-    unitEconomics: "",
-    scalability: "",
-    verticalIntegration: ""
-  },
-  supplyAndInput: {
-    supplierConcentration: "",
-    rawMaterialDependencies: "",
-    procurementStrategy: "",
-    supplierNegotiatingPower: ""
-  },
-  operations: {
-    operationalModel: "",
-    manufacturingOrDelivery: "",
-    capacityUtilization: "",
-    qualityControl: "",
-    geographicFootprint: ""
-  },
-  distribution: {
-    distributionChannels: "",
-    channelMix: "",
-    logisticsAndFulfillment: "",
-    partnerNetworks: ""
-  },
-  salesAndMarketing: {
-    goToMarketStrategy: "",
-    salesModel: "",
-    marketingStrategy: "",
-    brandStrength: "",
-    customerAcquisitionCost: ""
-  },
-  customerAndService: {
-    targetCustomerSegments: "",
-    customerLifetimeValue: "",
-    netPromoterScore: "",
-    churnRate: "",
-    customerSupportModel: "",
-    switchingCosts: ""
-  },
-  financials: {
-    revenue: "",
-    revenueGrowthRate: "",
-    grossMargin: "",
-    ebitda: "",
-    netIncome: "",
-    cashPosition: "",
-    debtLoad: "",
-    capitalExpenditure: "",
-    returnOnEquity: "",
-    valuationMultiple: ""
-  },
-  competition: {
-    primaryCompetitors: "",
-    competitiveAdvantages: "",
-    competitiveThreats: "",
-    barriersToEntry: "",
-    industryConsolidation: ""
-  },
-  risksAndFuture: {
-    keyRisks: "",
-    regulatoryEnvironment: "",
-    macroTailwinds: "",
-    macroHeadwinds: "",
-    futureBets: "",
-    mAndAOpportunities: ""
+function validateQuery(req, res) {
+  const { query, companyName } = req.body || {};
+  const raw = query ?? companyName; // accept legacy companyName field
+  if (!raw || !raw.trim()) {
+    res.status(400).json({ error: 'A company or sector name is required.' });
+    return null;
   }
-};
-
-function stripMarkdownFences(text) {
-  return text
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
+  const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
+  const domainCount = req.body?.domainCount; // validated/clamped in runAnalysis
+  return { mode, query: raw.trim(), domainCount };
 }
 
-app.post('/api/analyze', async (req, res) => {
-  const { companyName } = req.body || {};
+// ── Streaming endpoint (Server-Sent Events) ────────────────────────────────
+// Emits: plan / agent:queued / agent:running / agent:done / agent:error / complete
+app.post('/api/analyze/stream', async (req, res) => {
+  const parsed = validateQuery(req, res);
+  if (!parsed) return;
 
-  if (!companyName || !companyName.trim()) {
-    return res.status(400).json({ error: 'Company name is required.' });
-  }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+  });
+  res.flushHeaders?.();
 
-  const name = companyName.trim();
+  // Track real client disconnects via the RESPONSE stream. (req 'close' fires as
+  // soon as the POST body is fully received, which is NOT a disconnect and would
+  // wrongly suppress every subsequent SSE write.)
+  let clientGone = false;
+  res.on('close', () => { clientGone = true; });
 
-  const prompt = `Analyze "${name}" and fill in every field of the following JSON schema with 1-3 sentences specific to ${name}. Use "(estimated)" for any uncertain figures. Return ONLY the completed JSON object.
-
-Schema to fill:
-${JSON.stringify(SCHEMA_TEMPLATE, null, 2)}`;
+  const emit = (event, data) => {
+    if (clientGone || res.writableEnded) return;
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        maxOutputTokens: 16384,
-      },
-      contents: prompt,
-    });
-
-    const rawText = response.text;
-    const cleaned = stripMarkdownFences(rawText);
-
-    let analysis;
-    try {
-      analysis = JSON.parse(cleaned);
-    } catch {
-      console.error('JSON parse failed. Raw response snippet:', cleaned.slice(0, 400));
-      return res.status(500).json({
-        error: 'Gemini returned a response that could not be parsed as JSON. Try again.',
-        snippet: cleaned.slice(0, 300),
-      });
-    }
-
-    res.json({ analysis });
+    await runAnalysis(parsed.mode, parsed.query, emit, { domainCount: parsed.domainCount });
   } catch (err) {
-    console.error('Gemini API error:', err);
-    res.status(500).json({ error: err.message || 'Gemini API call failed.' });
+    console.error('Analysis error:', err);
+    emit('error', { error: err.message || 'Analysis failed.' });
+  } finally {
+    if (!clientGone && !res.writableEnded) {
+      emit('end', {});
+      res.end();
+    }
   }
+});
+
+// ── Non-streaming fallback (buffers events, returns final JSON) ─────────────
+app.post('/api/analyze', async (req, res) => {
+  const parsed = validateQuery(req, res);
+  if (!parsed) return;
+
+  try {
+    const result = await runAnalysis(parsed.mode, parsed.query, () => {}, {
+      domainCount: parsed.domainCount,
+    });
+    // Back-compat: expose the merged analysis at `.analysis`.
+    res.json(result);
+  } catch (err) {
+    console.error('Analysis error:', err);
+    res.status(500).json({ error: err.message || 'Analysis failed.' });
+  }
+});
+
+// Lets the frontend show which providers are active vs. falling back to Gemini.
+app.get('/api/providers', (_req, res) => {
+  res.json(availableProviders());
 });
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
+  const p = availableProviders();
+  console.log(
+    `Providers — Gemini: ${p.gemini ? 'on' : 'off'}, Groq: ${p.groq ? 'on' : 'off'}, HuggingFace: ${p.huggingface ? 'on' : 'off'}`
+  );
 });
