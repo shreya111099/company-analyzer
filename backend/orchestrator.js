@@ -247,3 +247,75 @@ export async function runCanvas(query) {
   const { blocks } = await runFramework('canvas', 'company', query);
   return { canvas: blocks };
 }
+
+// Structured financial snapshot for a company (numeric, for mini-charts).
+export async function runFinancials(query) {
+  const shape = {
+    metrics: [{ label: '', value: 0, unit: '', note: '' }],
+    revenueTrend: [{ period: '', value: 0 }],
+    margins: [{ label: '', value: 0 }],
+  };
+  const r = await callModel({
+    candidates: candidatesPreferring('groq'),
+    system:
+      'You are a financial analyst. Return ONLY a valid JSON object with numeric estimates for a company — no prose, no markdown fences. Numeric fields must be plain numbers (no currency symbols, no commas, no "%").',
+    prompt: `Provide a financial snapshot for the company "${query}".
+- metrics: 4-6 headline figures such as Revenue, Revenue Growth, Gross Margin, Net Margin, Market Cap / Valuation, Free Cash Flow. "value" is a plain number; "unit" is one of "$B", "$M", "%", "x"; "note" is "(estimated)" if uncertain else "".
+- revenueTrend: the last 3-4 fiscal years, each { "period": e.g. "FY22", "value": revenue in $B as a number }.
+- margins: Gross, Operating, Net as percentages (plain numbers).
+Use your best knowledge; estimate where needed. Return ONLY this JSON:
+
+${JSON.stringify(shape, null, 2)}`,
+    jsonMode: true,
+    timeoutMs: 30000,
+    maxTokens: 900,
+  });
+
+  const parsed = parseJson(r.text);
+  const num = (v) => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    metrics: (Array.isArray(parsed?.metrics) ? parsed.metrics : [])
+      .map((m) => ({ label: String(m.label || ''), value: num(m.value), unit: String(m.unit || ''), note: String(m.note || '') }))
+      .filter((m) => m.label && m.value !== null)
+      .slice(0, 6),
+    revenueTrend: (Array.isArray(parsed?.revenueTrend) ? parsed.revenueTrend : [])
+      .map((d) => ({ period: String(d.period || ''), value: num(d.value) }))
+      .filter((d) => d.period && d.value !== null)
+      .slice(0, 5),
+    margins: (Array.isArray(parsed?.margins) ? parsed.margins : [])
+      .map((d) => ({ label: String(d.label || ''), value: num(d.value) }))
+      .filter((d) => d.label && d.value !== null)
+      .slice(0, 4),
+  };
+}
+
+// Answer a follow-up question grounded in a completed analysis (single call).
+export async function runFollowup(query, context, question, history = []) {
+  const historyText = history
+    .map((m) => `${m.role === 'user' ? 'Q' : 'A'}: ${m.text}`)
+    .join('\n')
+    .slice(-1800);
+
+  const system =
+    'You are a sharp strategy analyst answering a follow-up question. Use the provided analysis as your primary source. Be concise and specific (2-5 sentences), plain prose (no markdown headers). If the analysis does not cover it, say so briefly, then give your best-grounded view and label it "(beyond the analysis)".';
+
+  const prompt = `Subject: ${query}
+
+Analysis context:
+${String(context).slice(0, 6000)}
+${historyText ? `\nConversation so far:\n${historyText}\n` : ''}
+Question: ${question}`;
+
+  const r = await callModel({
+    candidates: candidatesPreferring('groq'),
+    system,
+    prompt,
+    jsonMode: false,
+    timeoutMs: 30000,
+    maxTokens: 500,
+  });
+  return { answer: (r.text || '').trim(), provider: r.provider };
+}

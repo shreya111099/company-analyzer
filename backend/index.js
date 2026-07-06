@@ -1,7 +1,7 @@
 import 'dotenv/config'; // load env before any module reads process.env
 import express from 'express';
 import cors from 'cors';
-import { runAnalysis, runCanvas, runFramework } from './orchestrator.js';
+import { runAnalysis, runCanvas, runFramework, runFollowup, runFinancials } from './orchestrator.js';
 import { availableProviders } from './providers.js';
 import { COMPANIES, SECTORS, matchCurated } from './config/suggestions.js';
 import { FRAMEWORKS } from './config/frameworks.js';
@@ -96,6 +96,37 @@ app.post('/api/framework', async (req, res) => {
   } catch (err) {
     console.error('Framework error:', err);
     res.status(500).json({ error: err.message || 'Framework generation failed.' });
+  }
+});
+
+// Structured financial snapshot for a company (numeric, drives mini-charts).
+app.post('/api/financials', async (req, res) => {
+  const q = String(req.body?.query || '').trim();
+  if (!q) return res.status(400).json({ error: 'A company name is required.' });
+  try {
+    const data = await runFinancials(q);
+    res.json(data);
+  } catch (err) {
+    console.error('Financials error:', err);
+    res.status(500).json({ error: err.message || 'Financials generation failed.' });
+  }
+});
+
+// Follow-up Q&A grounded in a completed analysis.
+app.post('/api/followup', async (req, res) => {
+  const question = String(req.body?.question || '').trim();
+  if (!question) return res.status(400).json({ error: 'A question is required.' });
+  try {
+    const { answer } = await runFollowup(
+      String(req.body?.query || ''),
+      String(req.body?.context || ''),
+      question,
+      Array.isArray(req.body?.history) ? req.body.history : []
+    );
+    res.json({ answer });
+  } catch (err) {
+    console.error('Follow-up error:', err);
+    res.status(500).json({ error: err.message || 'Follow-up failed.' });
   }
 });
 

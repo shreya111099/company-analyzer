@@ -83,4 +83,86 @@ export const FRAMEWORKS = {
       return `Build a Business Model Canvas for the company "${query}". For EACH of the nine blocks, give 2-4 concise bullet phrases grounded in what is known about ${query}. Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
     },
   },
+
+  ansoff: {
+    label: 'Ansoff Matrix',
+    modes: ['company'],
+    blocks: [
+      { key: 'marketPenetration', label: 'Market Penetration' },
+      { key: 'marketDevelopment', label: 'Market Development' },
+      { key: 'productDevelopment', label: 'Product Development' },
+      { key: 'diversification', label: 'Diversification' },
+    ],
+    system:
+      'You are a growth-strategy expert applying the Ansoff Matrix. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
+    buildPrompt(mode, query, country) {
+      return `Apply the Ansoff growth matrix to ${subject(mode, query, country)}. Market Penetration = existing products in existing markets; Market Development = existing products in new markets; Product Development = new products in existing markets; Diversification = new products in new markets. Give 2-4 concrete, specific growth moves per quadrant. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    },
+  },
+
+  bcg: {
+    label: 'BCG Matrix',
+    modes: ['company'],
+    blocks: [
+      { key: 'stars', label: 'Stars' },
+      { key: 'cashCows', label: 'Cash Cows' },
+      { key: 'questionMarks', label: 'Question Marks' },
+      { key: 'dogs', label: 'Dogs' },
+    ],
+    system:
+      'You are a portfolio-strategy expert applying the BCG Growth-Share Matrix. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
+    buildPrompt(mode, query, country) {
+      return `Apply the BCG Growth-Share Matrix to the product lines / business units of the company "${query}". Stars = high growth, high share; Cash Cows = low growth, high share; Question Marks = high growth, low share; Dogs = low growth, low share. Classify 2-4 actual, named products or business units per quadrant. Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    },
+  },
+
+  vrio: {
+    label: 'VRIO Analysis',
+    modes: ['company'],
+    blocks: [
+      { key: 'value', label: 'Value' },
+      { key: 'rarity', label: 'Rarity' },
+      { key: 'imitability', label: 'Imitability' },
+      { key: 'organization', label: 'Organization' },
+    ],
+    system:
+      'You are a strategy expert applying the VRIO framework to a firm’s resources and capabilities. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
+    buildPrompt(mode, query, country) {
+      return `Apply the VRIO framework to the company "${query}". Value = does the resource exploit an opportunity/neutralize a threat; Rarity = is it rare among competitors; Imitability = is it costly to imitate; Organization = is the firm organized to capture the value. For each dimension, give 2-4 bullets naming the specific resources/capabilities and the verdict. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    },
+  },
+
+  threeCs: {
+    label: "3C's Analysis",
+    modes: ['company', 'sector'],
+    blocks: [
+      { key: 'company', label: 'Company' },
+      { key: 'customers', label: 'Customers' },
+      { key: 'competitors', label: 'Competitors' },
+    ],
+    system:
+      "You are a strategy expert applying Ohmae's 3C's model. Respond with ONLY a valid JSON object — no prose, no markdown fences.",
+    buildPrompt(mode, query, country) {
+      return `Apply the 3C's model to ${subject(mode, query, country)}. Company = strengths, capabilities, positioning; Customers = segments, needs, behavior; Competitors = key rivals and their moves. Give 3-5 concise, specific bullets per C. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    },
+  },
+
+  sevenS: {
+    label: 'McKinsey 7S',
+    modes: ['company'],
+    blocks: [
+      { key: 'strategy', label: 'Strategy' },
+      { key: 'structure', label: 'Structure' },
+      { key: 'systems', label: 'Systems' },
+      { key: 'sharedValues', label: 'Shared Values' },
+      { key: 'skills', label: 'Skills' },
+      { key: 'style', label: 'Style' },
+      { key: 'staff', label: 'Staff' },
+    ],
+    system:
+      'You are an organizational-strategy expert applying the McKinsey 7S framework. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
+    buildPrompt(mode, query, country) {
+      return `Apply the McKinsey 7S framework to the company "${query}" — the three "hard" elements (Strategy, Structure, Systems) and four "soft" elements (Shared Values, Skills, Style, Staff). Give 2-3 concise, specific bullets per element. Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    },
+  },
 };

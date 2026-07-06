@@ -7,6 +7,7 @@ import ModeToggle from './components/ModeToggle.jsx';
 import SearchInput from './components/SearchInput.jsx';
 import ComparisonView from './components/ComparisonView.jsx';
 import FrameworkView from './components/FrameworkView.jsx';
+import FollowUpChat from './components/FollowUpChat.jsx';
 import { SECTIONS, sectionLabel, formatAsInterviewNotes } from './utils/schema.js';
 import { FRAMEWORKS, frameworksForMode } from './utils/frameworks.js';
 import { COUNTRIES } from './utils/countries.js';
@@ -28,6 +29,7 @@ const emptyTab = () => ({
   mismatch: null,
   resultQuery: '',
   resultCountry: '',
+  chat: [],
 });
 
 const resetSlot = (q) => ({ ...emptyTab(), query: q, resultQuery: q });
@@ -229,14 +231,17 @@ export default function App() {
     setLoading(true);
     setFwResult({ framework, mode, data: null, error: '', resultQuery: q, country: runCountry });
     try {
-      const res = await fetch('/api/framework', {
+      const spec = FRAMEWORKS[framework];
+      const res = await fetch(spec.endpoint || '/api/framework', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ framework, mode, query: q, country: runCountry }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
-      setFwResult({ framework, mode, data: d.blocks, error: '', resultQuery: q, country: runCountry });
+      // Standard frameworks return { blocks }; special ones return their own shape.
+      const data = spec.endpoint ? d : d.blocks;
+      setFwResult({ framework, mode, data, error: '', resultQuery: q, country: runCountry });
     } catch (err) {
       setFwResult({ framework, mode, data: null, error: err.message || 'Framework generation failed.', resultQuery: q, country: runCountry });
     } finally {
@@ -590,6 +595,17 @@ export default function App() {
                   }
                   return null;
                 })}
+
+                {cur.analysis && (
+                  <FollowUpChat
+                    query={cur.resultQuery}
+                    buildContext={() =>
+                      formatAsInterviewNotes(mode, cur.resultQuery, cur.analysis, cur.synthesis, cur.sources)
+                    }
+                    chat={cur.chat}
+                    onChat={(next) => setTabs((p) => ({ ...p, [mode]: { ...p[mode], chat: next } }))}
+                  />
+                )}
               </div>
             )}
           </>

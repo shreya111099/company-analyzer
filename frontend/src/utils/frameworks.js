@@ -57,9 +57,96 @@ export const FRAMEWORKS = {
     layout: 'canvas',
     note: 'Business Model Canvas · Osterwalder & Pigneur framework',
   },
+  ansoff: {
+    key: 'ansoff',
+    label: 'Ansoff Matrix',
+    modes: ['company'],
+    layout: 'quadrant',
+    note: 'Ansoff Matrix · growth strategy (products × markets)',
+    blocks: [
+      { key: 'marketPenetration', label: 'Market Penetration', icon: '🎯' },
+      { key: 'marketDevelopment', label: 'Market Development', icon: '🌍' },
+      { key: 'productDevelopment', label: 'Product Development', icon: '🧪' },
+      { key: 'diversification', label: 'Diversification', icon: '🧭' },
+    ],
+  },
+  bcg: {
+    key: 'bcg',
+    label: 'BCG Matrix',
+    modes: ['company'],
+    layout: 'quadrant',
+    note: 'BCG Growth-Share Matrix · portfolio of business units',
+    blocks: [
+      { key: 'stars', label: 'Stars', icon: '⭐', tone: 'good' },
+      { key: 'cashCows', label: 'Cash Cows', icon: '🐄' },
+      { key: 'questionMarks', label: 'Question Marks', icon: '❓' },
+      { key: 'dogs', label: 'Dogs', icon: '🐕', tone: 'bad' },
+    ],
+  },
+  vrio: {
+    key: 'vrio',
+    label: 'VRIO',
+    modes: ['company'],
+    layout: 'grid',
+    note: 'VRIO · resource-based competitive advantage',
+    blocks: [
+      { key: 'value', label: 'Value', icon: '💎' },
+      { key: 'rarity', label: 'Rarity', icon: '🦄' },
+      { key: 'imitability', label: 'Imitability', icon: '🛡️' },
+      { key: 'organization', label: 'Organization', icon: '🏢' },
+    ],
+  },
+  threeCs: {
+    key: 'threeCs',
+    label: "3C's",
+    modes: ['company', 'sector'],
+    layout: 'grid',
+    note: "Ohmae's 3C's · Company · Customers · Competitors",
+    blocks: [
+      { key: 'company', label: 'Company', icon: '🏛️' },
+      { key: 'customers', label: 'Customers', icon: '👥' },
+      { key: 'competitors', label: 'Competitors', icon: '⚔️' },
+    ],
+  },
+  sevenS: {
+    key: 'sevenS',
+    label: 'McKinsey 7S',
+    modes: ['company'],
+    layout: 'grid',
+    note: 'McKinsey 7S · organizational alignment',
+    blocks: [
+      { key: 'strategy', label: 'Strategy', icon: '🧭' },
+      { key: 'structure', label: 'Structure', icon: '🏗️' },
+      { key: 'systems', label: 'Systems', icon: '⚙️' },
+      { key: 'sharedValues', label: 'Shared Values', icon: '💠' },
+      { key: 'skills', label: 'Skills', icon: '🎓' },
+      { key: 'style', label: 'Style', icon: '🎨' },
+      { key: 'staff', label: 'Staff', icon: '🧑‍💼' },
+    ],
+  },
+  financials: {
+    key: 'financials',
+    label: 'Financial Snapshot',
+    modes: ['company'],
+    layout: 'financials', // special-cased: numeric mini-charts
+    endpoint: '/api/financials',
+    note: 'Financial snapshot · model-estimated figures',
+  },
 };
 
-export const FRAMEWORK_ORDER = ['valuechain', 'swot', 'fiveforces', 'pestel', 'canvas'];
+export const FRAMEWORK_ORDER = [
+  'valuechain',
+  'swot',
+  'fiveforces',
+  'pestel',
+  'canvas',
+  'financials',
+  'ansoff',
+  'bcg',
+  'vrio',
+  'threeCs',
+  'sevenS',
+];
 
 export function frameworksForMode(mode) {
   return FRAMEWORK_ORDER.map((k) => FRAMEWORKS[k]).filter((f) => f.modes.includes(mode));

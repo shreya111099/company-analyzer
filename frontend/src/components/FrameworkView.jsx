@@ -1,4 +1,5 @@
 import BusinessModelCanvas from './BusinessModelCanvas.jsx';
+import FinancialSnapshot from './FinancialSnapshot.jsx';
 import { FRAMEWORKS } from '../utils/frameworks.js';
 
 function Block({ block, items, className = '' }) {
@@ -23,8 +24,9 @@ export default function FrameworkView({ framework, data }) {
   const spec = FRAMEWORKS[framework];
   if (!spec || !data) return null;
 
-  // Business Model Canvas has its own dedicated layout.
+  // Business Model Canvas and Financial Snapshot have dedicated renderers.
   if (spec.layout === 'canvas') return <BusinessModelCanvas data={data} />;
+  if (spec.layout === 'financials') return <FinancialSnapshot data={data} />;
 
   // Porter's Five Forces — center rivalry surrounded by the four forces.
   if (spec.layout === 'forces') {
