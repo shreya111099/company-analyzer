@@ -6,7 +6,9 @@ import SynthesisCard from './components/SynthesisCard.jsx';
 import ModeToggle from './components/ModeToggle.jsx';
 import SearchInput from './components/SearchInput.jsx';
 import ComparisonView from './components/ComparisonView.jsx';
+import FrameworkView from './components/FrameworkView.jsx';
 import { SECTIONS, sectionLabel, formatAsInterviewNotes } from './utils/schema.js';
+import { FRAMEWORKS, frameworksForMode } from './utils/frameworks.js';
 import { exportAnalysisPdf } from './utils/pdf.js';
 
 const PLACEHOLDER = {
@@ -127,22 +129,27 @@ const PROVIDER_NAME = { groq: 'Groq', huggingface: 'Hugging Face', gemini: 'Gemi
 
 export default function App() {
   const [mode, setMode] = useState('company');
-  const [companySub, setCompanySub] = useState('single');
+  const [companySub, setCompanySub] = useState('single'); // 'single' | 'compare'
+  const [framework, setFramework] = useState('valuechain');
   const [domainCount, setDomainCount] = useState(4);
   const [loading, setLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [tabs, setTabs] = useState({ company: emptyTab(), sector: emptyTab() });
   const [compare, setCompare] = useState({ a: emptyTab(), b: emptyTab() });
+  const [fwResult, setFwResult] = useState({ framework: null, mode: null, data: null, error: '', resultQuery: '' });
   const [providers, setProviders] = useState(null);
 
   useEffect(() => {
-    fetch('/api/providers')
-      .then((r) => r.json())
-      .then(setProviders)
-      .catch(() => {});
+    fetch('/api/providers').then((r) => r.json()).then(setProviders).catch(() => {});
   }, []);
 
+  // If the selected framework doesn't apply to the new mode, fall back to value chain.
+  useEffect(() => {
+    if (!FRAMEWORKS[framework].modes.includes(mode)) setFramework('valuechain');
+  }, [mode, framework]);
+
   const isCompare = mode === 'company' && companySub === 'compare';
+  const isQuick = !isCompare && framework !== 'valuechain';
   const cur = tabs[mode];
 
   const makeTabSink = (m) => ({
@@ -151,11 +158,7 @@ export default function App() {
     addDomain: (key, d, provider) =>
       setTabs((p) => ({
         ...p,
-        [m]: {
-          ...p[m],
-          analysis: { ...(p[m].analysis || {}), [key]: d },
-          meta: { ...p[m].meta, [key]: { provider } },
-        },
+        [m]: { ...p[m], analysis: { ...(p[m].analysis || {}), [key]: d }, meta: { ...p[m].meta, [key]: { provider } } },
       })),
   });
 
@@ -165,11 +168,7 @@ export default function App() {
     addDomain: (key, d, provider) =>
       setCompare((p) => ({
         ...p,
-        [slot]: {
-          ...p[slot],
-          analysis: { ...(p[slot].analysis || {}), [key]: d },
-          meta: { ...p[slot].meta, [key]: { provider } },
-        },
+        [slot]: { ...p[slot], analysis: { ...(p[slot].analysis || {}), [key]: d }, meta: { ...p[slot].meta, [key]: { provider } } },
       })),
   });
 
@@ -206,6 +205,28 @@ export default function App() {
     setLoading(false);
   }
 
+  async function handleFramework(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const q = cur.query.trim();
+    if (!q) return;
+    setLoading(true);
+    setFwResult({ framework, mode, data: null, error: '', resultQuery: q });
+    try {
+      const res = await fetch('/api/framework', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ framework, mode, query: q }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+      setFwResult({ framework, mode, data: d.blocks, error: '', resultQuery: q });
+    } catch (err) {
+      setFwResult({ framework, mode, data: null, error: err.message || 'Framework generation failed.', resultQuery: q });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleRegenerate() {
     if (cur.resultQuery) handleAnalyze(null, { query: cur.resultQuery });
   }
@@ -231,9 +252,15 @@ export default function App() {
     if (cur.analysis) exportAnalysisPdf(mode, cur.resultQuery, cur.analysis, cur.synthesis, cur.sources);
   }
 
+  const onSubmit = isCompare ? handleCompare : isQuick ? handleFramework : handleAnalyze;
+  const submitDisabled =
+    loading ||
+    (isCompare ? !compare.a.query.trim() || !compare.b.query.trim() : !cur.query.trim());
+
   const hasResults = cur.analysis || cur.synthesis;
   const failedKeys = new Set(cur.steps.filter((s) => s.status === 'error').map((s) => s.key));
   const compareHasData = compare.a.analysis || compare.b.analysis;
+  const fwMatches = fwResult.framework === framework && fwResult.mode === mode;
 
   const activeProviders = providers
     ? Object.keys(providers).filter((k) => providers[k]).map((k) => PROVIDER_NAME[k] || k)
@@ -265,7 +292,7 @@ export default function App() {
 
       <main className="main">
         {/* ── Command bar ── */}
-        <form className="command-bar" onSubmit={isCompare ? handleCompare : handleAnalyze}>
+        <form className="command-bar" onSubmit={onSubmit}>
           <div className="command-main">
             <ModeToggle mode={mode} onChange={handleModeChange} disabled={loading} />
             {isCompare ? (
@@ -296,31 +323,34 @@ export default function App() {
                 disabled={loading}
               />
             )}
-            <button
-              className="analyze-btn"
-              type="submit"
-              disabled={
-                loading ||
-                (isCompare
-                  ? !compare.a.query.trim() || !compare.b.query.trim()
-                  : !cur.query.trim())
-              }
-            >
+            <button className="analyze-btn" type="submit" disabled={submitDisabled}>
               {loading ? (isCompare ? 'Comparing…' : 'Analyzing…') : isCompare ? 'Compare' : 'Analyze'}
             </button>
           </div>
 
           <div className="command-sub">
-            <label className="depth-select">
-              <span className="depth-label">Depth</span>
-              <select value={domainCount} onChange={(e) => setDomainCount(Number(e.target.value))} disabled={loading}>
-                <option value={2}>2 · Quick</option>
-                <option value={4}>4 · Standard</option>
-                <option value={6}>6 · Deep</option>
-                <option value={8}>8 · Extensive</option>
-                <option value={12}>12 · Full</option>
-              </select>
-            </label>
+            {!isCompare && (
+              <label className="depth-select">
+                <span className="depth-label">Framework</span>
+                <select value={framework} onChange={(e) => setFramework(e.target.value)} disabled={loading}>
+                  {frameworksForMode(mode).map((f) => (
+                    <option key={f.key} value={f.key}>{f.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(isCompare || framework === 'valuechain') && (
+              <label className="depth-select">
+                <span className="depth-label">Depth</span>
+                <select value={domainCount} onChange={(e) => setDomainCount(Number(e.target.value))} disabled={loading}>
+                  <option value={2}>2 · Quick</option>
+                  <option value={4}>4 · Standard</option>
+                  <option value={6}>6 · Deep</option>
+                  <option value={8}>8 · Extensive</option>
+                  <option value={12}>12 · Full</option>
+                </select>
+              </label>
+            )}
             {mode === 'company' && (
               <div className="mode-toggle subtoggle" role="tablist" aria-label="Company view">
                 <button
@@ -343,7 +373,9 @@ export default function App() {
             )}
             {loading && (
               <span className="command-hint">
-                {isCompare
+                {isQuick
+                  ? `Building ${FRAMEWORKS[framework].label}…`
+                  : isCompare
                   ? 'Analyzing both companies…'
                   : cur.steps.length > 0
                   ? `${cur.steps.filter((s) => s.status === 'done').length}/${cur.steps.length} agents done`
@@ -353,8 +385,31 @@ export default function App() {
           </div>
         </form>
 
-        {/* ── Comparison view ── */}
-        {isCompare ? (
+        {/* ── Framework lens view (SWOT / Five Forces / PESTEL / Canvas) ── */}
+        {isQuick ? (
+          <>
+            {loading && !(fwMatches && fwResult.data) && (
+              <div className="bmc-loading">Building {FRAMEWORKS[framework].label}…</div>
+            )}
+            {fwMatches && fwResult.error && (
+              <div className="error-box">
+                <strong>Error:</strong> {fwResult.error}
+              </div>
+            )}
+            {fwMatches && fwResult.data && (
+              <div className="results">
+                <div className="results-header">
+                  <div className="results-id">
+                    <span className="results-mode-tag">{FRAMEWORKS[framework].label}</span>
+                    <h2 className="results-title">{fwResult.resultQuery}</h2>
+                  </div>
+                </div>
+                <FrameworkView framework={framework} data={fwResult.data} />
+                <p className="bmc-note">{FRAMEWORKS[framework].note}</p>
+              </div>
+            )}
+          </>
+        ) : isCompare ? (
           <>
             {(compare.a.steps.length > 0 || compare.b.steps.length > 0) && (
               <div className="compare-progress">
@@ -371,7 +426,6 @@ export default function App() {
           </>
         ) : (
           <>
-            {/* Pipeline strip — the visible multi-agent centerpiece */}
             <PipelineStrip steps={cur.steps} />
 
             {cur.mismatch && (
@@ -441,9 +495,7 @@ export default function App() {
                     <ol className="sources-list">
                       {cur.sources.map((s, i) => (
                         <li key={i}>
-                          <a href={s.url} target="_blank" rel="noopener noreferrer">
-                            {s.title}
-                          </a>
+                          <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
                         </li>
                       ))}
                     </ol>
@@ -478,7 +530,6 @@ export default function App() {
                       />
                     );
                   }
-                  // Skeleton while this stage's agent is queued/running.
                   if (loading && step && (step.status === 'running' || step.status === 'queued')) {
                     return (
                       <div className="skeleton-card" key={section.key} aria-hidden="true">
@@ -489,9 +540,7 @@ export default function App() {
                           </span>
                         </div>
                         {step.status === 'running' && (
-                          <div className="skeleton-lines">
-                            <span /><span /><span />
-                          </div>
+                          <div className="skeleton-lines"><span /><span /><span /></div>
                         )}
                       </div>
                     );

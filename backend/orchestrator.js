@@ -15,7 +15,9 @@ import {
   FRAMING_AGENT,
   SYNTHESIS_AGENT,
   CLASSIFIER_AGENT,
+  candidatesPreferring,
 } from './agents/registry.js';
+import { FRAMEWORKS } from './config/frameworks.js';
 
 // Kept modest so parallel calls stay under free-tier tokens-per-minute caps.
 const CONCURRENCY = Number(process.env.AGENT_CONCURRENCY) || 3;
@@ -211,4 +213,34 @@ export async function runAnalysis(mode, query, emit, options = {}) {
 
   emit('complete', { analysis, synthesis, meta, sources });
   return { analysis, synthesis, meta, sources };
+}
+
+// Run a single-call strategy framework (SWOT, Five Forces, PESTEL, Canvas…).
+export async function runFramework(frameworkKey, mode, query) {
+  const fw = FRAMEWORKS[frameworkKey];
+  if (!fw) throw new Error(`Unknown framework: ${frameworkKey}`);
+
+  const r = await callModel({
+    candidates: candidatesPreferring('groq'),
+    system: fw.system,
+    prompt: fw.buildPrompt(mode, query),
+    jsonMode: true,
+    timeoutMs: 30000,
+    maxTokens: 1600,
+  });
+
+  const parsed = parseJson(r.text);
+  // Ensure every block is an array of strings.
+  const blocks = {};
+  for (const b of fw.blocks) {
+    const v = parsed?.[b.key];
+    blocks[b.key] = Array.isArray(v) ? v.filter(Boolean) : v ? [String(v)] : [];
+  }
+  return { framework: frameworkKey, blocks, provider: r.provider };
+}
+
+// Back-compat: the Canvas endpoint is just the canvas framework.
+export async function runCanvas(query) {
+  const { blocks } = await runFramework('canvas', 'company', query);
+  return { canvas: blocks };
 }

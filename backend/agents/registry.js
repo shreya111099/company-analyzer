@@ -162,3 +162,30 @@ Produce ONLY this JSON object, grounded in the analysis above (3-5 items per arr
 ${shape}`;
   },
 };
+
+// ── Business Model Canvas agent ────────────────────────────────────────────
+// Fills the nine Osterwalder building blocks for a company.
+export const CANVAS_BLOCKS = [
+  'keyPartners',
+  'keyActivities',
+  'keyResources',
+  'valuePropositions',
+  'customerRelationships',
+  'channels',
+  'customerSegments',
+  'costStructure',
+  'revenueStreams',
+];
+
+export const CANVAS_AGENT = {
+  key: 'canvas',
+  candidates: candidatesPreferring('groq'),
+  system:
+    'You are a business strategy expert building a Business Model Canvas (Osterwalder & Pigneur). Respond with ONLY a valid JSON object — no prose, no markdown fences.',
+  buildPrompt(query) {
+    const shape = JSON.stringify(Object.fromEntries(CANVAS_BLOCKS.map((k) => [k, []])), null, 2);
+    return `Build a Business Model Canvas for the company "${query}". For EACH of the nine blocks, give 2-4 concise, specific bullet points (short phrases, not full sentences) grounded in what is actually known about ${query}. Label a point "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):
+
+${shape}`;
+  },
+};

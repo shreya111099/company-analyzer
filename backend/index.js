@@ -1,9 +1,10 @@
 import 'dotenv/config'; // load env before any module reads process.env
 import express from 'express';
 import cors from 'cors';
-import { runAnalysis } from './orchestrator.js';
+import { runAnalysis, runCanvas, runFramework } from './orchestrator.js';
 import { availableProviders } from './providers.js';
 import { COMPANIES, SECTORS, matchCurated } from './config/suggestions.js';
+import { FRAMEWORKS } from './config/frameworks.js';
 
 const app = express();
 app.use(cors());
@@ -73,6 +74,35 @@ app.post('/api/analyze', async (req, res) => {
   } catch (err) {
     console.error('Analysis error:', err);
     res.status(500).json({ error: err.message || 'Analysis failed.' });
+  }
+});
+
+// Strategy framework lens (SWOT / Five Forces / PESTEL / Canvas) — single call.
+app.post('/api/framework', async (req, res) => {
+  const q = String(req.body?.query || '').trim();
+  const framework = String(req.body?.framework || '');
+  const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
+  if (!q) return res.status(400).json({ error: 'A company or sector name is required.' });
+  if (!FRAMEWORKS[framework]) return res.status(400).json({ error: 'Unknown framework.' });
+  try {
+    const out = await runFramework(framework, mode, q);
+    res.json(out);
+  } catch (err) {
+    console.error('Framework error:', err);
+    res.status(500).json({ error: err.message || 'Framework generation failed.' });
+  }
+});
+
+// Back-compat: Business Model Canvas endpoint.
+app.post('/api/canvas', async (req, res) => {
+  const q = String(req.body?.query || '').trim();
+  if (!q) return res.status(400).json({ error: 'A company name is required.' });
+  try {
+    const { canvas } = await runCanvas(q);
+    res.json({ canvas });
+  } catch (err) {
+    console.error('Canvas error:', err);
+    res.status(500).json({ error: err.message || 'Canvas generation failed.' });
   }
 });
 
