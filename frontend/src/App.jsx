@@ -4,6 +4,7 @@ import ProgressTracker from './components/ProgressTracker.jsx';
 import SynthesisCard from './components/SynthesisCard.jsx';
 import ModeToggle from './components/ModeToggle.jsx';
 import { SECTIONS, sectionLabel, formatAsInterviewNotes } from './utils/schema.js';
+import { exportAnalysisPdf } from './utils/pdf.js';
 
 const PLACEHOLDER = {
   company: 'Enter a company (e.g. Apple, Stripe, TSMC…)',
@@ -193,6 +194,11 @@ export default function App() {
     setTimeout(() => setCopySuccess(false), 2000);
   }
 
+  function handleExportPdf() {
+    if (!cur.analysis) return;
+    exportAnalysisPdf(mode, cur.resultQuery, cur.analysis, cur.synthesis);
+  }
+
   const hasResults = cur.analysis || cur.synthesis;
   const failedKeys = new Set(cur.steps.filter((s) => s.status === 'error').map((s) => s.key));
 
@@ -285,12 +291,17 @@ export default function App() {
                 <h2 className="results-title">{cur.resultQuery}</h2>
               </div>
               {cur.analysis && (
-                <button
-                  className={`copy-btn ${copySuccess ? 'copy-btn--success' : ''}`}
-                  onClick={handleCopy}
-                >
-                  {copySuccess ? 'Copied!' : 'Copy as interview notes'}
-                </button>
+                <div className="results-actions">
+                  <button className="export-btn" onClick={handleExportPdf}>
+                    Export PDF
+                  </button>
+                  <button
+                    className={`copy-btn ${copySuccess ? 'copy-btn--success' : ''}`}
+                    onClick={handleCopy}
+                  >
+                    {copySuccess ? 'Copied!' : 'Copy as interview notes'}
+                  </button>
+                </div>
               )}
             </div>
 

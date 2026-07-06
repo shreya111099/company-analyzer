@@ -19,10 +19,11 @@ import {
 // Kept modest so parallel calls stay under free-tier tokens-per-minute caps.
 const CONCURRENCY = Number(process.env.AGENT_CONCURRENCY) || 3;
 
-// SCALED-DOWN MODE: run only the domain agents for now (no framing pre-step,
-// no synthesis). Flip these back on once the 2-agent path is proven reliable.
+// Synthesis (executive summary card) is on by default — set ENABLE_SYNTHESIS=false
+// to disable. Framing (a shared-context pre-step) stays opt-in via ENABLE_FRAMING=true
+// since it adds an extra call before the fan-out.
 const ENABLE_FRAMING = process.env.ENABLE_FRAMING === 'true';
-const ENABLE_SYNTHESIS = process.env.ENABLE_SYNTHESIS === 'true';
+const ENABLE_SYNTHESIS = process.env.ENABLE_SYNTHESIS !== 'false';
 
 function stripMarkdownFences(text) {
   return String(text)
@@ -41,6 +42,17 @@ function parseJson(text) {
     if (match) return JSON.parse(match[0]);
     throw new Error('Response was not valid JSON');
   }
+}
+
+// Models sometimes return executiveSummary as an array of sentences and the list
+// fields as a single string. Coerce to the shapes the UI/PDF expect.
+function normalizeSynthesis(s) {
+  if (!s || typeof s !== 'object') return s;
+  if (Array.isArray(s.executiveSummary)) s.executiveSummary = s.executiveSummary.join(' ');
+  for (const k of ['keyStrengths', 'keyWeaknesses', 'strategicRecommendations', 'keyQuestionsForDiligence']) {
+    if (typeof s[k] === 'string') s[k] = s[k] ? [s[k]] : [];
+  }
+  return s;
 }
 
 async function runAgent(agent, buildArgs) {
@@ -177,7 +189,7 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     emit('agent:running', { key: 'synthesis', label: SYNTHESIS_AGENT.label });
     try {
       const r = await runAgent(SYNTHESIS_AGENT, [mode, query, JSON.stringify(analysis)]);
-      synthesis = parseJson(r.text);
+      synthesis = normalizeSynthesis(parseJson(r.text));
       emit('agent:done', { key: 'synthesis', label: SYNTHESIS_AGENT.label, data: synthesis });
     } catch (err) {
       emit('agent:error', { key: 'synthesis', label: SYNTHESIS_AGENT.label, error: err.message });
