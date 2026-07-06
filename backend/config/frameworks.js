@@ -2,8 +2,9 @@
 // fills a set of named blocks. Value Chain (the multi-agent pipeline) is handled
 // separately in the orchestrator; these are the compact single-call frameworks.
 
-function subject(mode, query) {
-  return mode === 'sector' ? `the "${query}" sector/industry` : `the company "${query}"`;
+function subject(mode, query, country) {
+  const geo = mode === 'sector' && country && country !== 'Global' ? ` in ${country}` : '';
+  return mode === 'sector' ? `the "${query}" sector/industry${geo}` : `the company "${query}"`;
 }
 
 function jsonShape(blocks) {
@@ -22,8 +23,8 @@ export const FRAMEWORKS = {
     ],
     system:
       'You are a strategy expert producing a rigorous SWOT analysis. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
-    buildPrompt(mode, query) {
-      return `Produce a SWOT analysis for ${subject(mode, query)}. Strengths and Weaknesses are INTERNAL; Opportunities and Threats are EXTERNAL. Give 3-5 concise, specific bullet points per block (short phrases, not sentences). Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    buildPrompt(mode, query, country) {
+      return `Produce a SWOT analysis for ${subject(mode, query, country)}. Strengths and Weaknesses are INTERNAL; Opportunities and Threats are EXTERNAL. Give 3-5 concise, specific bullet points per block (short phrases, not sentences). Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
     },
   },
 
@@ -39,8 +40,8 @@ export const FRAMEWORKS = {
     ],
     system:
       "You are a strategy expert applying Porter's Five Forces. Respond with ONLY a valid JSON object — no prose, no markdown fences.",
-    buildPrompt(mode, query) {
-      return `Apply Porter's Five Forces to ${subject(mode, query)}. For EACH force, make the FIRST bullet an intensity verdict — "High / Medium / Low" with a short reason — then 2-3 supporting points. Concise phrases. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    buildPrompt(mode, query, country) {
+      return `Apply Porter's Five Forces to ${subject(mode, query, country)}. For EACH force, make the FIRST bullet an intensity verdict — "High / Medium / Low" with a short reason — then 2-3 supporting points. Concise phrases. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
     },
   },
 
@@ -57,8 +58,8 @@ export const FRAMEWORKS = {
     ],
     system:
       'You are a strategy expert producing a PESTEL macro-environment analysis. Respond with ONLY a valid JSON object — no prose, no markdown fences.',
-    buildPrompt(mode, query) {
-      return `Produce a PESTEL macro-environment analysis for ${subject(mode, query)}. Give 2-4 concise, specific bullet points per factor (Political, Economic, Social, Technological, Environmental, Legal). Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
+    buildPrompt(mode, query, country) {
+      return `Produce a PESTEL macro-environment analysis for ${subject(mode, query, country)}. Give 2-4 concise, specific bullet points per factor (Political, Economic, Social, Technological, Environmental, Legal). Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
     },
   },
 
@@ -78,7 +79,7 @@ export const FRAMEWORKS = {
     ],
     system:
       'You are a business strategy expert building a Business Model Canvas (Osterwalder & Pigneur). Respond with ONLY a valid JSON object — no prose, no markdown fences.',
-    buildPrompt(mode, query) {
+    buildPrompt(mode, query, country) {
       return `Build a Business Model Canvas for the company "${query}". For EACH of the nine blocks, give 2-4 concise bullet phrases grounded in what is known about ${query}. Label "(estimated)" only if uncertain. Return ONLY this JSON object (each value an array of strings):\n\n${jsonShape(this.blocks)}`;
     },
   },

@@ -9,6 +9,7 @@ import ComparisonView from './components/ComparisonView.jsx';
 import FrameworkView from './components/FrameworkView.jsx';
 import { SECTIONS, sectionLabel, formatAsInterviewNotes } from './utils/schema.js';
 import { FRAMEWORKS, frameworksForMode } from './utils/frameworks.js';
+import { COUNTRIES } from './utils/countries.js';
 import { exportAnalysisPdf } from './utils/pdf.js';
 
 const PLACEHOLDER = {
@@ -26,6 +27,7 @@ const emptyTab = () => ({
   error: '',
   mismatch: null,
   resultQuery: '',
+  resultCountry: '',
 });
 
 const resetSlot = (q) => ({ ...emptyTab(), query: q, resultQuery: q });
@@ -107,12 +109,12 @@ function applyEvent(event, data, sink) {
   }
 }
 
-async function streamAnalysis(runMode, q, domainCount, sink) {
+async function streamAnalysis(runMode, q, domainCount, country, sink) {
   try {
     const res = await fetch('/api/analyze/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: runMode, query: q, domainCount }),
+      body: JSON.stringify({ mode: runMode, query: q, domainCount, country }),
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -131,6 +133,7 @@ export default function App() {
   const [mode, setMode] = useState('company');
   const [companySub, setCompanySub] = useState('single'); // 'single' | 'compare'
   const [framework, setFramework] = useState('valuechain');
+  const [country, setCountry] = useState('Global');
   const [domainCount, setDomainCount] = useState(4);
   const [loading, setLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -138,10 +141,22 @@ export default function App() {
   const [compare, setCompare] = useState({ a: emptyTab(), b: emptyTab() });
   const [fwResult, setFwResult] = useState({ framework: null, mode: null, data: null, error: '', resultQuery: '' });
   const [providers, setProviders] = useState(null);
+  const [theme, setTheme] = useState(
+    () => document.documentElement.getAttribute('data-theme') || 'light'
+  );
 
   useEffect(() => {
     fetch('/api/providers').then((r) => r.json()).then(setProviders).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
 
   // If the selected framework doesn't apply to the new mode, fall back to value chain.
   useEffect(() => {
@@ -181,10 +196,11 @@ export default function App() {
     const runMode = override.mode || mode;
     const q = (override.query ?? tabs[runMode].query).trim();
     if (!q) return;
+    const runCountry = runMode === 'sector' ? country : 'Global';
     setLoading(true);
     const sink = makeTabSink(runMode);
-    sink.patch(resetSlot(q));
-    await streamAnalysis(runMode, q, domainCount, sink);
+    sink.patch({ ...resetSlot(q), resultCountry: runMode === 'sector' ? runCountry : '' });
+    await streamAnalysis(runMode, q, domainCount, runCountry, sink);
     setLoading(false);
   }
 
@@ -199,8 +215,8 @@ export default function App() {
     sinkA.patch(resetSlot(qa));
     sinkB.patch(resetSlot(qb));
     await Promise.all([
-      streamAnalysis('company', qa, domainCount, sinkA),
-      streamAnalysis('company', qb, domainCount, sinkB),
+      streamAnalysis('company', qa, domainCount, 'Global', sinkA),
+      streamAnalysis('company', qb, domainCount, 'Global', sinkB),
     ]);
     setLoading(false);
   }
@@ -209,19 +225,20 @@ export default function App() {
     if (e && e.preventDefault) e.preventDefault();
     const q = cur.query.trim();
     if (!q) return;
+    const runCountry = mode === 'sector' ? country : 'Global';
     setLoading(true);
-    setFwResult({ framework, mode, data: null, error: '', resultQuery: q });
+    setFwResult({ framework, mode, data: null, error: '', resultQuery: q, country: runCountry });
     try {
       const res = await fetch('/api/framework', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ framework, mode, query: q }),
+        body: JSON.stringify({ framework, mode, query: q, country: runCountry }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
-      setFwResult({ framework, mode, data: d.blocks, error: '', resultQuery: q });
+      setFwResult({ framework, mode, data: d.blocks, error: '', resultQuery: q, country: runCountry });
     } catch (err) {
-      setFwResult({ framework, mode, data: null, error: err.message || 'Framework generation failed.', resultQuery: q });
+      setFwResult({ framework, mode, data: null, error: err.message || 'Framework generation failed.', resultQuery: q, country: runCountry });
     } finally {
       setLoading(false);
     }
@@ -281,12 +298,22 @@ export default function App() {
             <h1 className="logo">Strategic Analyzer</h1>
             <p className="tagline">Multi-Agent · Sector &amp; Company Value-Chain Analysis</p>
           </div>
-          {activeProviders.length > 0 && (
-            <div className="provider-meta" title="Models power the agent pipeline (with automatic failover)">
-              <span className="provider-bolt" aria-hidden="true">⚡</span>
-              <span>Multi-model · {activeProviders.join(' · ')}</span>
-            </div>
-          )}
+          <div className="header-right">
+            {activeProviders.length > 0 && (
+              <div className="provider-meta" title="Models power the agent pipeline (with automatic failover)">
+                <span className="provider-bolt" aria-hidden="true">⚡</span>
+                <span>Multi-model · {activeProviders.join(' · ')}</span>
+              </div>
+            )}
+            <button
+              className="theme-toggle"
+              onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              aria-label="Toggle dark mode"
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -335,6 +362,16 @@ export default function App() {
                 <select value={framework} onChange={(e) => setFramework(e.target.value)} disabled={loading}>
                   {frameworksForMode(mode).map((f) => (
                     <option key={f.key} value={f.key}>{f.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {mode === 'sector' && (
+              <label className="depth-select">
+                <span className="depth-label">Country</span>
+                <select value={country} onChange={(e) => setCountry(e.target.value)} disabled={loading}>
+                  {COUNTRIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </label>
@@ -401,6 +438,9 @@ export default function App() {
                 <div className="results-header">
                   <div className="results-id">
                     <span className="results-mode-tag">{FRAMEWORKS[framework].label}</span>
+                    {fwResult.country && fwResult.country !== 'Global' && (
+                      <span className="geo-tag">📍 {fwResult.country}</span>
+                    )}
                     <h2 className="results-title">{fwResult.resultQuery}</h2>
                   </div>
                 </div>
@@ -461,6 +501,9 @@ export default function App() {
                 <div className="results-header">
                   <div className="results-id">
                     <span className="results-mode-tag">{mode === 'sector' ? 'Sector' : 'Company'}</span>
+                    {cur.resultCountry && cur.resultCountry !== 'Global' && (
+                      <span className="geo-tag">📍 {cur.resultCountry}</span>
+                    )}
                     <h2 className="results-title">{cur.resultQuery}</h2>
                   </div>
                   {cur.analysis && (

@@ -35,9 +35,15 @@ const DOMAIN_SYSTEM = `You are a top-tier strategy consultant and MBA case-inter
 2. If a figure or fact is uncertain or estimated, add the label "(estimated)" rather than stating it as confirmed fact.
 3. Respond with ONLY a valid JSON object matching the requested shape. No markdown fences, no preamble, no trailing commentary — just raw JSON.`;
 
-function subjectClause(mode, query) {
+// Optional country scope applies to sector analysis only.
+function geoSuffix(mode, country) {
+  return mode === 'sector' && country && country !== 'Global' ? ` in ${country}` : '';
+}
+
+function subjectClause(mode, query, country) {
+  const geo = geoSuffix(mode, country);
   return mode === 'sector'
-    ? `the "${query}" sector/industry as a whole (analyze the industry, its structure and its representative players — not a single company)`
+    ? `the "${query}" sector/industry${geo} (analyze the industry${geo ? ` as it operates${geo}` : ''}, its structure and representative players — not a single company)`
     : `the company "${query}"`;
 }
 
@@ -54,14 +60,14 @@ function makeDomainAgent(domain, startIndex) {
     provider: candidates[0].provider, // starting provider (for the UI plan/badge)
     model: candidates[0].model,
     system: DOMAIN_SYSTEM,
-    buildPrompt(mode, query, framing) {
+    buildPrompt(mode, query, framing, country) {
       const shape = JSON.stringify(emptySlice(domain), null, 2);
-      return `Analyze ${subjectClause(mode, query)} for the "${domain.label}" dimension only.
+      return `Analyze ${subjectClause(mode, query, country)} for the "${domain.label}" dimension only.
 
 Shared context established for this analysis:
 ${framing || '(none)'}
 
-Fill in every field of this JSON object with 1-3 sentences specific to ${query}. Use "(estimated)" for any uncertain figures. Return ONLY the completed JSON object:
+Fill in every field of this JSON object with 1-3 sentences specific to ${query}${geoSuffix(mode, country)}. Use "(estimated)" for any uncertain figures. Return ONLY the completed JSON object:
 
 ${shape}`;
     },
@@ -122,9 +128,10 @@ export const FRAMING_AGENT = {
   candidates: candidatesPreferring('groq'),
   system:
     'You are a strategy consultant setting up a structured analysis. Respond with a tight, factual briefing in plain prose (no JSON, no markdown headings). Keep it under 180 words.',
-  buildPrompt(mode, query) {
+  buildPrompt(mode, query, country) {
+    const geo = geoSuffix(mode, country);
     return mode === 'sector'
-      ? `Establish shared context for a strategic analysis of the "${query}" sector. In under 180 words, state: (1) a one-line definition of the sector and its boundaries, (2) its main sub-segments, (3) 4-6 representative players, (4) rough market size and growth (label estimates "(estimated)"). This briefing will be handed to specialist analysts.`
+      ? `Establish shared context for a strategic analysis of the "${query}" sector${geo}. In under 180 words, state: (1) a one-line definition of the sector and its boundaries${geo ? ` ${geo}` : ''}, (2) its main sub-segments, (3) 4-6 representative players${geo ? ` active${geo}` : ''}, (4) rough market size and growth${geo ? ` ${geo}` : ''} (label estimates "(estimated)"). This briefing will be handed to specialist analysts.`
       : `Establish shared context for a strategic analysis of the company "${query}". In under 180 words, state: (1) a one-line description of what the company does, (2) the sector it competes in, (3) 4-6 primary competitors, (4) rough scale — revenue / users / valuation (label estimates "(estimated)"). This briefing will be handed to specialist analysts.`;
   },
 };
@@ -137,7 +144,7 @@ export const SYNTHESIS_AGENT = {
   candidates: candidatesPreferring('groq'),
   system:
     'You are a senior strategy partner delivering an executive synthesis. Respond with ONLY a valid JSON object in the exact shape requested — no markdown fences, no preamble.',
-  buildPrompt(mode, query, mergedAnalysisJson) {
+  buildPrompt(mode, query, mergedAnalysisJson, country) {
     const shape = JSON.stringify(
       {
         executiveSummary: '',
@@ -151,7 +158,8 @@ export const SYNTHESIS_AGENT = {
     );
     return `You have received specialist analyses of ${subjectClause(
       mode,
-      query
+      query,
+      country
     )} across the full value chain. Synthesize them into an executive strategic assessment.
 
 Full analysis (JSON):

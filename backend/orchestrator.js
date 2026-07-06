@@ -118,6 +118,9 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     : 4; // default
   const agents = DOMAIN_AGENTS.slice(0, domainCount);
 
+  // Optional country scope (sector analysis only).
+  const country = mode === 'sector' ? options.country || 'Global' : 'Global';
+
   // ── 0. Mode guard: block an obvious company/sector mix-up ──
   emit('classifying', { query });
   const cls = await classifyQuery(query);
@@ -137,7 +140,7 @@ export async function runAnalysis(mode, query, emit, options = {}) {
   let framing = '';
   let sources = [];
   emit('grounding', { query });
-  const grounded = await gatherSources(mode, query);
+  const grounded = await gatherSources(mode, query, country);
   if (grounded) {
     framing = grounded.brief || '';
     sources = grounded.sources || [];
@@ -160,7 +163,7 @@ export async function runAnalysis(mode, query, emit, options = {}) {
   if (ENABLE_FRAMING && !framing) {
     emit('agent:running', { key: 'framing', label: FRAMING_AGENT.label });
     try {
-      const r = await runAgent(FRAMING_AGENT, [mode, query]);
+      const r = await runAgent(FRAMING_AGENT, [mode, query, country]);
       framing = r.text.trim();
       emit('agent:done', { key: 'framing', label: FRAMING_AGENT.label, text: framing });
     } catch (err) {
@@ -179,7 +182,7 @@ export async function runAnalysis(mode, query, emit, options = {}) {
       limit(async () => {
         emit('agent:running', { key: agent.key, label: agent.label });
         try {
-          const r = await runAgent(agent, [mode, query, framing]);
+          const r = await runAgent(agent, [mode, query, framing, country]);
           const slice = parseJson(r.text);
           analysis[agent.key] = slice;
           meta[agent.key] = { provider: r.provider, model: r.model, status: 'done' };
@@ -203,7 +206,7 @@ export async function runAnalysis(mode, query, emit, options = {}) {
   if (ENABLE_SYNTHESIS && Object.keys(analysis).length > 0) {
     emit('agent:running', { key: 'synthesis', label: SYNTHESIS_AGENT.label });
     try {
-      const r = await runAgent(SYNTHESIS_AGENT, [mode, query, JSON.stringify(analysis)]);
+      const r = await runAgent(SYNTHESIS_AGENT, [mode, query, JSON.stringify(analysis), country]);
       synthesis = normalizeSynthesis(parseJson(r.text));
       emit('agent:done', { key: 'synthesis', label: SYNTHESIS_AGENT.label, data: synthesis });
     } catch (err) {
@@ -216,14 +219,14 @@ export async function runAnalysis(mode, query, emit, options = {}) {
 }
 
 // Run a single-call strategy framework (SWOT, Five Forces, PESTEL, Canvas…).
-export async function runFramework(frameworkKey, mode, query) {
+export async function runFramework(frameworkKey, mode, query, country = 'Global') {
   const fw = FRAMEWORKS[frameworkKey];
   if (!fw) throw new Error(`Unknown framework: ${frameworkKey}`);
 
   const r = await callModel({
     candidates: candidatesPreferring('groq'),
     system: fw.system,
-    prompt: fw.buildPrompt(mode, query),
+    prompt: fw.buildPrompt(mode, query, country),
     jsonMode: true,
     timeoutMs: 30000,
     maxTokens: 1600,

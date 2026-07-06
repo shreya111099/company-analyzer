@@ -19,7 +19,8 @@ function validateQuery(req, res) {
   }
   const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
   const domainCount = req.body?.domainCount; // validated/clamped in runAnalysis
-  return { mode, query: raw.trim(), domainCount };
+  const country = typeof req.body?.country === 'string' ? req.body.country : 'Global';
+  return { mode, query: raw.trim(), domainCount, country };
 }
 
 // ── Streaming endpoint (Server-Sent Events) ────────────────────────────────
@@ -48,7 +49,10 @@ app.post('/api/analyze/stream', async (req, res) => {
   };
 
   try {
-    await runAnalysis(parsed.mode, parsed.query, emit, { domainCount: parsed.domainCount });
+    await runAnalysis(parsed.mode, parsed.query, emit, {
+      domainCount: parsed.domainCount,
+      country: parsed.country,
+    });
   } catch (err) {
     console.error('Analysis error:', err);
     emit('error', { error: err.message || 'Analysis failed.' });
@@ -68,6 +72,7 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const result = await runAnalysis(parsed.mode, parsed.query, () => {}, {
       domainCount: parsed.domainCount,
+      country: parsed.country,
     });
     // Back-compat: expose the merged analysis at `.analysis`.
     res.json(result);
@@ -82,10 +87,11 @@ app.post('/api/framework', async (req, res) => {
   const q = String(req.body?.query || '').trim();
   const framework = String(req.body?.framework || '');
   const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
+  const country = typeof req.body?.country === 'string' ? req.body.country : 'Global';
   if (!q) return res.status(400).json({ error: 'A company or sector name is required.' });
   if (!FRAMEWORKS[framework]) return res.status(400).json({ error: 'Unknown framework.' });
   try {
-    const out = await runFramework(framework, mode, q);
+    const out = await runFramework(framework, mode, q, country);
     res.json(out);
   } catch (err) {
     console.error('Framework error:', err);

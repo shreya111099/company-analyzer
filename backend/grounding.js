@@ -40,14 +40,15 @@ function normalizeSources(chunks) {
   return out;
 }
 
-export async function gatherSources(mode, query) {
+export async function gatherSources(mode, query, country) {
   if (!ENABLED) return null;
   const ai = gemini();
   if (!ai) return null;
 
+  const geo = mode === 'sector' && country && country !== 'Global' ? ` in ${country}` : '';
   const subject =
     mode === 'sector'
-      ? `the "${query}" sector/industry`
+      ? `the "${query}" sector/industry${geo}`
       : `the company "${query}"`;
 
   const prompt = `Research ${subject} using up-to-date web sources and write a concise factual briefing (under 250 words). Cover: what it is; scale (revenue, market size, users, or valuation); key players/competitors; and the most notable recent developments (prefer 2024-2025). State figures with their approximate date. Plain prose, no headings.`;
