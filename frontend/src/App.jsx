@@ -598,6 +598,7 @@ export default function App() {
 
       <footer className="footer">
         <p>Multi-model · Grounded via Google Search · For strategy &amp; interview prep</p>
+        <p className="footer-credit">Developed by Shreyasi &amp; Rohit</p>
       </footer>
     </div>
   );

@@ -1303,6 +1303,22 @@ body {
   font-size: 0.8rem;
 }
 
+.footer-credit {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.footer-credit {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 720px) {
