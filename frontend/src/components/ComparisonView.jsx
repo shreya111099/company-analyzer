@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SECTIONS } from '../utils/schema.js';
+import Est from './Est.jsx';
 
 function ComparisonSection({ section, a, b, defaultOpen }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -23,8 +24,8 @@ function ComparisonSection({ section, a, b, defaultOpen }) {
             {rows.map((f) => (
               <div className="cmp-row" key={f.key}>
                 <div className="cmp-field">{f.label}</div>
-                <div className="cmp-cell">{da?.[f.key] || <span className="cmp-empty">—</span>}</div>
-                <div className="cmp-cell">{db?.[f.key] || <span className="cmp-empty">—</span>}</div>
+                <div className="cmp-cell">{da?.[f.key] ? <Est text={da[f.key]} /> : <span className="cmp-empty">—</span>}</div>
+                <div className="cmp-cell">{db?.[f.key] ? <Est text={db[f.key]} /> : <span className="cmp-empty">—</span>}</div>
               </div>
             ))}
           </div>

@@ -1,4 +1,5 @@
 import { SYNTHESIS_FIELDS } from '../utils/schema.js';
+import Est from './Est.jsx';
 
 export default function SynthesisCard({ synthesis }) {
   if (!synthesis) return null;
@@ -12,7 +13,7 @@ export default function SynthesisCard({ synthesis }) {
       <h3 className="synthesis-title">Strategic Synthesis</h3>
 
       {synthesis.executiveSummary && (
-        <p className="synthesis-summary">{synthesis.executiveSummary}</p>
+        <p className="synthesis-summary"><Est text={synthesis.executiveSummary} /></p>
       )}
 
       <div className="synthesis-grid">
@@ -21,7 +22,7 @@ export default function SynthesisCard({ synthesis }) {
             <h4 className="synthesis-block-title">{f.label}</h4>
             <ul className="synthesis-block-list">
               {synthesis[f.key].map((item, i) => (
-                <li key={i}>{item}</li>
+                <li key={i}><Est text={item} /></li>
               ))}
             </ul>
           </div>

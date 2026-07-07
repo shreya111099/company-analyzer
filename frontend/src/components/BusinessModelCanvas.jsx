@@ -1,3 +1,5 @@
+import Est from './Est.jsx';
+
 // The nine Osterwalder building blocks, laid out in the canonical canvas grid.
 const BLOCKS = [
   { key: 'keyPartners', label: 'Key Partners', icon: '🤝', area: 'kp' },
@@ -24,7 +26,7 @@ export default function BusinessModelCanvas({ data }) {
             </div>
             <ul className="bmc-list">
               {items.length > 0 ? (
-                items.map((item, i) => <li key={i}>{item}</li>)
+                items.map((item, i) => <li key={i}><Est text={item} /></li>)
               ) : (
                 <li className="bmc-empty">—</li>
               )}

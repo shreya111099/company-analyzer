@@ -1,5 +1,6 @@
 import BusinessModelCanvas from './BusinessModelCanvas.jsx';
 import FinancialSnapshot from './FinancialSnapshot.jsx';
+import Est from './Est.jsx';
 import { FRAMEWORKS } from '../utils/frameworks.js';
 
 function Block({ block, items, className = '' }) {
@@ -11,7 +12,7 @@ function Block({ block, items, className = '' }) {
       </div>
       <ul className="fw-list">
         {items && items.length > 0 ? (
-          items.map((it, i) => <li key={i}>{it}</li>)
+          items.map((it, i) => <li key={i}><Est text={it} /></li>)
         ) : (
           <li className="fw-empty">—</li>
         )}

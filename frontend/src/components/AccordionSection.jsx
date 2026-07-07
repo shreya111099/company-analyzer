@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Est from './Est.jsx';
 
 const PROVIDER_LABEL = { gemini: 'Gemini', groq: 'Groq', huggingface: 'HF' };
 
@@ -45,7 +46,7 @@ export default function AccordionSection({ title, data, fields, defaultOpen, met
                 return (
                   <div className="field-row" key={field.key}>
                     <dt className="field-label">{field.label}</dt>
-                    <dd className="field-value">{value}</dd>
+                    <dd className="field-value"><Est text={value} /></dd>
                   </div>
                 );
               })}

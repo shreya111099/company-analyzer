@@ -8,9 +8,12 @@ import SearchInput from './components/SearchInput.jsx';
 import ComparisonView from './components/ComparisonView.jsx';
 import FrameworkView from './components/FrameworkView.jsx';
 import FollowUpChat from './components/FollowUpChat.jsx';
+import Disclaimer from './components/Disclaimer.jsx';
+import DomainPicker, { CORE_4 } from './components/DomainPicker.jsx';
 import { SECTIONS, sectionLabel, formatAsInterviewNotes } from './utils/schema.js';
 import { FRAMEWORKS, frameworksForMode } from './utils/frameworks.js';
 import { COUNTRIES } from './utils/countries.js';
+import { api } from './utils/api.js';
 import { exportAnalysisPdf } from './utils/pdf.js';
 
 const PLACEHOLDER = {
@@ -30,6 +33,7 @@ const emptyTab = () => ({
   resultQuery: '',
   resultCountry: '',
   chat: [],
+  sourcesVia: '',
 });
 
 const resetSlot = (q) => ({ ...emptyTab(), query: q, resultQuery: q });
@@ -73,7 +77,7 @@ async function consumeSSE(response, onEvent) {
 function applyEvent(event, data, sink) {
   switch (event) {
     case 'sources':
-      sink.patch({ sources: data.sources || [] });
+      sink.patch({ sources: data.sources || [], sourcesVia: data.via || '' });
       break;
     case 'mismatch':
       sink.patch({ mismatch: { detected: data.detected, expected: data.expected } });
@@ -111,12 +115,12 @@ function applyEvent(event, data, sink) {
   }
 }
 
-async function streamAnalysis(runMode, q, domainCount, country, sink) {
+async function streamAnalysis(runMode, q, domainKeys, country, sink) {
   try {
-    const res = await fetch('/api/analyze/stream', {
+    const res = await fetch(api('/api/analyze/stream'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: runMode, query: q, domainCount, country }),
+      body: JSON.stringify({ mode: runMode, query: q, domainKeys, country }),
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -136,7 +140,7 @@ export default function App() {
   const [companySub, setCompanySub] = useState('single'); // 'single' | 'compare'
   const [framework, setFramework] = useState('valuechain');
   const [country, setCountry] = useState('Global');
-  const [domainCount, setDomainCount] = useState(4);
+  const [selectedDomains, setSelectedDomains] = useState(CORE_4);
   const [loading, setLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [tabs, setTabs] = useState({ company: emptyTab(), sector: emptyTab() });
@@ -148,7 +152,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    fetch('/api/providers').then((r) => r.json()).then(setProviders).catch(() => {});
+    fetch(api('/api/providers')).then((r) => r.json()).then(setProviders).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -202,7 +206,7 @@ export default function App() {
     setLoading(true);
     const sink = makeTabSink(runMode);
     sink.patch({ ...resetSlot(q), resultCountry: runMode === 'sector' ? runCountry : '' });
-    await streamAnalysis(runMode, q, domainCount, runCountry, sink);
+    await streamAnalysis(runMode, q, selectedDomains, runCountry, sink);
     setLoading(false);
   }
 
@@ -217,8 +221,8 @@ export default function App() {
     sinkA.patch(resetSlot(qa));
     sinkB.patch(resetSlot(qb));
     await Promise.all([
-      streamAnalysis('company', qa, domainCount, 'Global', sinkA),
-      streamAnalysis('company', qb, domainCount, 'Global', sinkB),
+      streamAnalysis('company', qa, selectedDomains, 'Global', sinkA),
+      streamAnalysis('company', qb, selectedDomains, 'Global', sinkB),
     ]);
     setLoading(false);
   }
@@ -232,7 +236,7 @@ export default function App() {
     setFwResult({ framework, mode, data: null, error: '', resultQuery: q, country: runCountry });
     try {
       const spec = FRAMEWORKS[framework];
-      const res = await fetch(spec.endpoint || '/api/framework', {
+      const res = await fetch(api(spec.endpoint || '/api/framework'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ framework, mode, query: q, country: runCountry }),
@@ -275,8 +279,11 @@ export default function App() {
   }
 
   const onSubmit = isCompare ? handleCompare : isQuick ? handleFramework : handleAnalyze;
+  // Value-chain runs (single or compare) need at least one domain selected.
+  const noDomains = !isQuick && selectedDomains.length === 0;
   const submitDisabled =
     loading ||
+    noDomains ||
     (isCompare ? !compare.a.query.trim() || !compare.b.query.trim() : !cur.query.trim());
 
   const hasResults = cur.analysis || cur.synthesis;
@@ -382,16 +389,7 @@ export default function App() {
               </label>
             )}
             {(isCompare || framework === 'valuechain') && (
-              <label className="depth-select">
-                <span className="depth-label">Depth</span>
-                <select value={domainCount} onChange={(e) => setDomainCount(Number(e.target.value))} disabled={loading}>
-                  <option value={2}>2 · Quick</option>
-                  <option value={4}>4 · Standard</option>
-                  <option value={6}>6 · Deep</option>
-                  <option value={8}>8 · Extensive</option>
-                  <option value={12}>12 · Full</option>
-                </select>
-              </label>
+              <DomainPicker selected={selectedDomains} onChange={setSelectedDomains} disabled={loading} />
             )}
             {mode === 'company' && (
               <div className="mode-toggle subtoggle" role="tablist" aria-label="Company view">
@@ -451,6 +449,7 @@ export default function App() {
                 </div>
                 <FrameworkView framework={framework} data={fwResult.data} />
                 <p className="bmc-note">{FRAMEWORKS[framework].note}</p>
+                <Disclaimer />
               </div>
             )}
           </>
@@ -468,6 +467,7 @@ export default function App() {
               </div>
             )}
             {compareHasData && <ComparisonView a={compare.a} b={compare.b} />}
+            {compareHasData && <Disclaimer />}
           </>
         ) : (
           <>
@@ -532,6 +532,7 @@ export default function App() {
                 </div>
 
                 {cur.analysis && <StatStrip stats={stats} />}
+                {cur.analysis && <Disclaimer />}
 
                 <SynthesisCard synthesis={cur.synthesis} />
 
@@ -547,7 +548,9 @@ export default function App() {
                         </li>
                       ))}
                     </ol>
-                    <p className="sources-note">Grounded via Google Search · links open the original source</p>
+                    <p className="sources-note">
+                      Grounded via {cur.sourcesVia || 'web search'} · links open the original source
+                    </p>
                   </details>
                 )}
 

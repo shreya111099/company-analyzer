@@ -8,7 +8,7 @@
 // can stream it (SSE). One agent failing is non-fatal.
 
 import pLimit from 'p-limit';
-import { callModel } from './providers.js';
+import { callModel, callModelStream } from './providers.js';
 import { gatherSources } from './grounding.js';
 import {
   DOMAIN_AGENTS,
@@ -111,12 +111,21 @@ export async function runAnalysis(mode, query, emit, options = {}) {
   const analysis = {};
   const meta = {}; // per-domain { provider, model, status }
 
-  // How many (priority-ordered) domain agents to run — user-selectable.
-  const requested = Number(options.domainCount);
-  const domainCount = Number.isFinite(requested)
-    ? Math.min(Math.max(1, Math.round(requested)), DOMAIN_AGENTS.length)
-    : 4; // default
-  const agents = DOMAIN_AGENTS.slice(0, domainCount);
+  // Which domain agents to run. Prefer an explicit key list; fall back to a count
+  // (priority-ordered) for back-compat.
+  let agents;
+  const keys = Array.isArray(options.domainKeys) ? options.domainKeys.filter(Boolean) : null;
+  if (keys && keys.length) {
+    const set = new Set(keys);
+    agents = DOMAIN_AGENTS.filter((a) => set.has(a.key)); // keeps priority order
+    if (agents.length === 0) agents = DOMAIN_AGENTS.slice(0, 4);
+  } else {
+    const requested = Number(options.domainCount);
+    const domainCount = Number.isFinite(requested)
+      ? Math.min(Math.max(1, Math.round(requested)), DOMAIN_AGENTS.length)
+      : 4;
+    agents = DOMAIN_AGENTS.slice(0, domainCount);
+  }
 
   // Optional country scope (sector analysis only).
   const country = mode === 'sector' ? options.country || 'Global' : 'Global';
@@ -139,13 +148,15 @@ export async function runAnalysis(mode, query, emit, options = {}) {
   // the sources are shown to the user as citations. Fails soft.
   let framing = '';
   let sources = [];
+  let sourcesVia = '';
   emit('grounding', { query });
   const grounded = await gatherSources(mode, query, country);
   if (grounded) {
     framing = grounded.brief || '';
     sources = grounded.sources || [];
+    sourcesVia = grounded.via || '';
   }
-  emit('sources', { sources });
+  emit('sources', { sources, via: sourcesVia });
 
   // Announce the planned agent roster up front so the UI can render the list.
   emit('plan', {
@@ -214,8 +225,35 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     }
   }
 
-  emit('complete', { analysis, synthesis, meta, sources });
-  return { analysis, synthesis, meta, sources };
+  emit('complete', { analysis, synthesis, meta, sources, sourcesVia });
+  return { analysis, synthesis, meta, sources, sourcesVia };
+}
+
+// Replay a cached analysis result as SSE events so the UI renders identically
+// (instantly) without re-running the agents.
+const DOMAIN_LABELS = Object.fromEntries(DOMAIN_AGENTS.map((a) => [a.key, a.label]));
+
+export function replayAnalysis(result, emit) {
+  emit('sources', { sources: result.sources || [], via: result.sourcesVia || '' });
+  const keys = Object.keys(result.analysis || {});
+  emit('plan', {
+    query: result.query,
+    agents: keys.map((k) => ({ key: k, label: DOMAIN_LABELS[k] || k, provider: result.meta?.[k]?.provider })),
+  });
+  for (const k of keys) {
+    emit('agent:running', { key: k, label: DOMAIN_LABELS[k] || k });
+    emit('agent:done', { key: k, label: DOMAIN_LABELS[k] || k, provider: result.meta?.[k]?.provider, data: result.analysis[k] });
+  }
+  if (result.synthesis) {
+    emit('agent:running', { key: 'synthesis', label: 'Strategic Synthesis' });
+    emit('agent:done', { key: 'synthesis', label: 'Strategic Synthesis', data: result.synthesis });
+  }
+  emit('complete', {
+    analysis: result.analysis,
+    synthesis: result.synthesis,
+    meta: result.meta,
+    sources: result.sources,
+  });
 }
 
 // Run a single-call strategy framework (SWOT, Five Forces, PESTEL, Canvas…).
@@ -292,8 +330,8 @@ ${JSON.stringify(shape, null, 2)}`,
   };
 }
 
-// Answer a follow-up question grounded in a completed analysis (single call).
-export async function runFollowup(query, context, question, history = []) {
+// Shared prompt builder for follow-up Q&A.
+function buildFollowupPrompt(query, context, question, history = []) {
   const historyText = history
     .map((m) => `${m.role === 'user' ? 'Q' : 'A'}: ${m.text}`)
     .join('\n')
@@ -309,6 +347,12 @@ ${String(context).slice(0, 6000)}
 ${historyText ? `\nConversation so far:\n${historyText}\n` : ''}
 Question: ${question}`;
 
+  return { system, prompt };
+}
+
+// Answer a follow-up question grounded in a completed analysis (single call).
+export async function runFollowup(query, context, question, history = []) {
+  const { system, prompt } = buildFollowupPrompt(query, context, question, history);
   const r = await callModel({
     candidates: candidatesPreferring('groq'),
     system,
@@ -318,4 +362,13 @@ Question: ${question}`;
     maxTokens: 500,
   });
   return { answer: (r.text || '').trim(), provider: r.provider };
+}
+
+// Streaming follow-up: calls onToken(text) for each chunk as it arrives.
+export async function runFollowupStream(query, context, question, history, onToken) {
+  const { system, prompt } = buildFollowupPrompt(query, context, question, history);
+  return callModelStream(
+    { candidates: candidatesPreferring('groq'), system, prompt, timeoutMs: 30000, maxTokens: 500 },
+    onToken
+  );
 }

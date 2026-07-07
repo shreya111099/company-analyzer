@@ -217,3 +217,121 @@ export async function callModel(opts) {
   }
   throw lastErr;
 }
+
+// ── Streaming variants ─────────────────────────────────────────────────────
+
+async function callGeminiStream({ model, system, prompt, maxTokens }, onToken) {
+  const stream = await gemini().models.generateContentStream({
+    model,
+    config: { systemInstruction: system, maxOutputTokens: maxTokens },
+    contents: prompt,
+  });
+  let text = '';
+  for await (const chunk of stream) {
+    const t = chunk.text || '';
+    if (t) {
+      text += t;
+      onToken(t);
+    }
+  }
+  return text;
+}
+
+async function callOpenAICompatibleStream(providerKey, { model, system, prompt, maxTokens, timeoutMs }, onToken) {
+  const cfg = OPENAI_COMPATIBLE[providerKey];
+  const key = keyFor[providerKey]();
+  if (!key) throw new Error(`${providerKey} key is not set`);
+
+  let res;
+  try {
+    res = await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.4,
+        stream: true,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    const err = new Error(`${cfg.label} request failed: ${e.name === 'TimeoutError' ? 'timeout' : e.message}`);
+    err.status = 408;
+    throw err;
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`${cfg.label} HTTP ${res.status}: ${body.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let text = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') return text;
+      try {
+        const t = JSON.parse(payload)?.choices?.[0]?.delta?.content || '';
+        if (t) {
+          text += t;
+          onToken(t);
+        }
+      } catch {
+        /* ignore keep-alive / partial lines */
+      }
+    }
+  }
+  return text;
+}
+
+/**
+ * Streaming version of callModel with failover. Calls onToken(text) for each
+ * chunk. If a candidate errors before emitting any token, fails over to the next;
+ * if it errors mid-stream, it throws (the client already has partial text).
+ */
+export async function callModelStream(opts, onToken) {
+  const { candidates, provider, model, system, prompt, timeoutMs = 30000, maxTokens = 500 } = opts;
+  const keys = availableProviders();
+  const list = (candidates && candidates.length ? candidates : [{ provider, model }])
+    .filter((c) => c && c.provider && c.model && keys[c.provider]);
+  if (list.length === 0) throw new Error('No usable provider keys configured for the requested models');
+
+  let lastErr;
+  for (const cand of list) {
+    let emitted = false;
+    const wrap = (t) => {
+      emitted = true;
+      onToken(t);
+    };
+    try {
+      const params = { model: cand.model, system, prompt, maxTokens, timeoutMs };
+      const text =
+        cand.provider === 'gemini'
+          ? await callGeminiStream(params, wrap)
+          : await callOpenAICompatibleStream(cand.provider, params, wrap);
+      return { text, provider: cand.provider, model: cand.model };
+    } catch (err) {
+      lastErr = err;
+      if (emitted) throw err; // already streamed partial output — don't restart
+      // else fail over to the next candidate
+    }
+  }
+  throw lastErr;
+}

@@ -1,14 +1,42 @@
 import 'dotenv/config'; // load env before any module reads process.env
 import express from 'express';
 import cors from 'cors';
-import { runAnalysis, runCanvas, runFramework, runFollowup, runFinancials } from './orchestrator.js';
+import rateLimit from 'express-rate-limit';
+import {
+  runAnalysis,
+  runCanvas,
+  runFramework,
+  runFollowup,
+  runFollowupStream,
+  runFinancials,
+  replayAnalysis,
+} from './orchestrator.js';
 import { availableProviders } from './providers.js';
 import { COMPANIES, SECTORS, matchCurated } from './config/suggestions.js';
 import { FRAMEWORKS } from './config/frameworks.js';
+import { cacheGet, cacheSet, cacheKey } from './cache.js';
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Behind Render/Vercel proxies — trust the first proxy so rate-limit sees the
+// real client IP (via X-Forwarded-For).
+app.set('trust proxy', 1);
+
+// CORS: open by default. Set CORS_ORIGIN (comma-separated) in production to lock
+// it to your frontend origin(s), e.g. "https://your-app.vercel.app".
+const corsOrigin = process.env.CORS_ORIGIN;
+app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map((s) => s.trim()) } : {}));
+app.use(express.json({ limit: '1mb' }));
+
+// Per-IP rate limit on the expensive (model-calling) endpoints, so a public
+// deploy can't drain your API keys.
+const heavyLimiter = rateLimit({
+  windowMs: (Number(process.env.RATE_LIMIT_WINDOW_MIN) || 15) * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit reached — please wait a few minutes before running more analyses.' },
+});
 
 function validateQuery(req, res) {
   const { query, companyName } = req.body || {};
@@ -18,14 +46,18 @@ function validateQuery(req, res) {
     return null;
   }
   const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
-  const domainCount = req.body?.domainCount; // validated/clamped in runAnalysis
+  const domainCount = req.body?.domainCount; // back-compat
+  const domainKeys = Array.isArray(req.body?.domainKeys)
+    ? req.body.domainKeys.filter((k) => typeof k === 'string')
+    : null;
   const country = typeof req.body?.country === 'string' ? req.body.country : 'Global';
-  return { mode, query: raw.trim(), domainCount, country };
+  const refresh = req.body?.refresh === true; // bypass cache (Regenerate)
+  return { mode, query: raw.trim(), domainCount, domainKeys, country, refresh };
 }
 
 // ── Streaming endpoint (Server-Sent Events) ────────────────────────────────
 // Emits: plan / agent:queued / agent:running / agent:done / agent:error / complete
-app.post('/api/analyze/stream', async (req, res) => {
+app.post('/api/analyze/stream', heavyLimiter, async (req, res) => {
   const parsed = validateQuery(req, res);
   if (!parsed) return;
 
@@ -48,11 +80,25 @@ app.post('/api/analyze/stream', async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
+  const selection = parsed.domainKeys?.length ? [...parsed.domainKeys].sort() : parsed.domainCount ?? 4;
+  const key = cacheKey(['analyze', parsed.mode, parsed.query, selection, parsed.country]);
+
   try {
-    await runAnalysis(parsed.mode, parsed.query, emit, {
-      domainCount: parsed.domainCount,
-      country: parsed.country,
-    });
+    const cached = parsed.refresh ? null : cacheGet(key);
+    if (cached) {
+      emit('cached', { at: Date.now() });
+      replayAnalysis({ ...cached, query: parsed.query }, emit);
+    } else {
+      const result = await runAnalysis(parsed.mode, parsed.query, emit, {
+        domainCount: parsed.domainCount,
+        domainKeys: parsed.domainKeys,
+        country: parsed.country,
+      });
+      // Cache only successful runs that actually produced sections.
+      if (result && !result.mismatch && Object.keys(result.analysis || {}).length > 0) {
+        cacheSet(key, result);
+      }
+    }
   } catch (err) {
     console.error('Analysis error:', err);
     emit('error', { error: err.message || 'Analysis failed.' });
@@ -65,13 +111,14 @@ app.post('/api/analyze/stream', async (req, res) => {
 });
 
 // ── Non-streaming fallback (buffers events, returns final JSON) ─────────────
-app.post('/api/analyze', async (req, res) => {
+app.post('/api/analyze', heavyLimiter, async (req, res) => {
   const parsed = validateQuery(req, res);
   if (!parsed) return;
 
   try {
     const result = await runAnalysis(parsed.mode, parsed.query, () => {}, {
       domainCount: parsed.domainCount,
+      domainKeys: parsed.domainKeys,
       country: parsed.country,
     });
     // Back-compat: expose the merged analysis at `.analysis`.
@@ -83,15 +130,21 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 // Strategy framework lens (SWOT / Five Forces / PESTEL / Canvas) — single call.
-app.post('/api/framework', async (req, res) => {
+app.post('/api/framework', heavyLimiter, async (req, res) => {
   const q = String(req.body?.query || '').trim();
   const framework = String(req.body?.framework || '');
   const mode = req.body?.mode === 'sector' ? 'sector' : 'company';
   const country = typeof req.body?.country === 'string' ? req.body.country : 'Global';
   if (!q) return res.status(400).json({ error: 'A company or sector name is required.' });
   if (!FRAMEWORKS[framework]) return res.status(400).json({ error: 'Unknown framework.' });
+
+  const key = cacheKey(['framework', framework, mode, q, country]);
+  const cached = cacheGet(key);
+  if (cached) return res.json(cached);
+
   try {
     const out = await runFramework(framework, mode, q, country);
+    cacheSet(key, out);
     res.json(out);
   } catch (err) {
     console.error('Framework error:', err);
@@ -100,11 +153,17 @@ app.post('/api/framework', async (req, res) => {
 });
 
 // Structured financial snapshot for a company (numeric, drives mini-charts).
-app.post('/api/financials', async (req, res) => {
+app.post('/api/financials', heavyLimiter, async (req, res) => {
   const q = String(req.body?.query || '').trim();
   if (!q) return res.status(400).json({ error: 'A company name is required.' });
+
+  const key = cacheKey(['financials', q]);
+  const cached = cacheGet(key);
+  if (cached) return res.json(cached);
+
   try {
     const data = await runFinancials(q);
+    cacheSet(key, data);
     res.json(data);
   } catch (err) {
     console.error('Financials error:', err);
@@ -112,8 +171,47 @@ app.post('/api/financials', async (req, res) => {
   }
 });
 
-// Follow-up Q&A grounded in a completed analysis.
-app.post('/api/followup', async (req, res) => {
+// Follow-up Q&A grounded in a completed analysis — streamed token-by-token (SSE).
+app.post('/api/followup/stream', heavyLimiter, async (req, res) => {
+  const question = String(req.body?.question || '').trim();
+  if (!question) return res.status(400).json({ error: 'A question is required.' });
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+  });
+  res.flushHeaders?.();
+
+  let clientGone = false;
+  res.on('close', () => { clientGone = true; });
+  const emit = (event, data) => {
+    if (clientGone || res.writableEnded) return;
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    await runFollowupStream(
+      String(req.body?.query || ''),
+      String(req.body?.context || ''),
+      question,
+      Array.isArray(req.body?.history) ? req.body.history : [],
+      (token) => emit('token', { token })
+    );
+  } catch (err) {
+    console.error('Follow-up stream error:', err);
+    emit('error', { error: err.message || 'Follow-up failed.' });
+  } finally {
+    if (!clientGone && !res.writableEnded) {
+      emit('done', {});
+      res.end();
+    }
+  }
+});
+
+// Non-streaming follow-up (back-compat / fallback).
+app.post('/api/followup', heavyLimiter, async (req, res) => {
   const question = String(req.body?.question || '').trim();
   if (!question) return res.status(400).json({ error: 'A question is required.' });
   try {
@@ -131,7 +229,7 @@ app.post('/api/followup', async (req, res) => {
 });
 
 // Back-compat: Business Model Canvas endpoint.
-app.post('/api/canvas', async (req, res) => {
+app.post('/api/canvas', heavyLimiter, async (req, res) => {
   const q = String(req.body?.query || '').trim();
   if (!q) return res.status(400).json({ error: 'A company name is required.' });
   try {

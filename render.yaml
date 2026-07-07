@@ -1,0 +1,26 @@
+# Render Blueprint for the backend API.
+# In Render: New → Blueprint → connect this repo. Set the secret env vars
+# (marked sync:false) in the dashboard after it creates the service.
+services:
+  - type: web
+    name: strategic-analyzer-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/providers
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: ENABLE_GROUNDING
+        value: 'true'
+      # Optional: lock CORS to your Vercel domain, e.g. https://your-app.vercel.app
+      - key: CORS_ORIGIN
+        sync: false

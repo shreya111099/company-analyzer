@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { api } from '../utils/api.js';
 
 // Google-style autocomplete input. Debounced suggestions from /api/suggest,
 // with keyboard navigation (↑/↓/Enter/Esc). Selecting fills the box (it does
@@ -22,7 +23,7 @@ export default function SearchInput({ value, onChange, mode, placeholder, disabl
     timer.current = setTimeout(async () => {
       const reqId = ++lastReq.current;
       try {
-        const res = await fetch(`/api/suggest?mode=${mode}&q=${encodeURIComponent(q)}`);
+        const res = await fetch(api(`/api/suggest?mode=${mode}&q=${encodeURIComponent(q)}`));
         const data = await res.json();
         if (reqId !== lastReq.current) return; // a newer request superseded this one
         setSuggestions(data.suggestions || []);

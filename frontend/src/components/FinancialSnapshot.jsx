@@ -1,3 +1,5 @@
+import Est from './Est.jsx';
+
 // Financial mini-charts: headline metric tiles, a revenue-trend bar chart, and
 // margin bars. Pure CSS/flex charts — no chart library.
 
@@ -27,7 +29,7 @@ export default function FinancialSnapshot({ data }) {
               <div className="fin-value">{fmt(m.value, m.unit)}</div>
               <div className="fin-label">
                 {m.label}
-                {m.note ? <span className="fin-note"> {m.note}</span> : null}
+                {m.note ? <span className="fin-note"> <Est text={m.note} /></span> : null}
               </div>
             </div>
           ))}
