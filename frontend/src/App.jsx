@@ -3,6 +3,7 @@ import AccordionSection from './components/AccordionSection.jsx';
 import PipelineStrip from './components/PipelineStrip.jsx';
 import StatStrip from './components/StatStrip.jsx';
 import SynthesisCard from './components/SynthesisCard.jsx';
+import OverviewCard from './components/OverviewCard.jsx';
 import ModeToggle from './components/ModeToggle.jsx';
 import SearchInput from './components/SearchInput.jsx';
 import ComparisonView from './components/ComparisonView.jsx';
@@ -34,6 +35,7 @@ const emptyTab = () => ({
   resultCountry: '',
   chat: [],
   sourcesVia: '',
+  overview: null,
 });
 
 const resetSlot = (q) => ({ ...emptyTab(), query: q, resultQuery: q });
@@ -78,6 +80,9 @@ function applyEvent(event, data, sink) {
   switch (event) {
     case 'sources':
       sink.patch({ sources: data.sources || [], sourcesVia: data.via || '' });
+      break;
+    case 'overview':
+      sink.patch({ overview: data.overview || null });
       break;
     case 'mismatch':
       sink.patch({ mismatch: { detected: data.detected, expected: data.expected } });
@@ -286,7 +291,7 @@ export default function App() {
     noDomains ||
     (isCompare ? !compare.a.query.trim() || !compare.b.query.trim() : !cur.query.trim());
 
-  const hasResults = cur.analysis || cur.synthesis;
+  const hasResults = cur.analysis || cur.synthesis || cur.overview;
   const failedKeys = new Set(cur.steps.filter((s) => s.status === 'error').map((s) => s.key));
   const compareHasData = compare.a.analysis || compare.b.analysis;
   const fwMatches = fwResult.framework === framework && fwResult.mode === mode;
@@ -531,6 +536,8 @@ export default function App() {
                   )}
                 </div>
 
+                <OverviewCard mode={mode} overview={cur.overview} />
+
                 {cur.analysis && <StatStrip stats={stats} />}
                 {cur.analysis && <Disclaimer />}
 
@@ -617,7 +624,7 @@ export default function App() {
 
       <footer className="footer">
         <p>Multi-model · Grounded via Google Search · For strategy &amp; interview prep</p>
-        <p className="footer-credit">Developed by Shreyasi &amp; Rohit</p>
+        {/* <p className="footer-credit">Developed by Shreyasi &amp; Rohit</p> */}
       </footer>
     </div>
   );

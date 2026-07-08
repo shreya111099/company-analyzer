@@ -9,7 +9,7 @@
 
 import pLimit from 'p-limit';
 import { callModel, callModelStream } from './providers.js';
-import { gatherSources } from './grounding.js';
+import { gatherSources, gatherFinancialSources } from './grounding.js';
 import {
   DOMAIN_AGENTS,
   FRAMING_AGENT,
@@ -21,6 +21,11 @@ import { FRAMEWORKS } from './config/frameworks.js';
 
 // Kept modest so parallel calls stay under free-tier tokens-per-minute caps.
 const CONCURRENCY = Number(process.env.AGENT_CONCURRENCY) || 3;
+
+// Injected into every analytical prompt so the model favours current facts and
+// doesn't waste context on stale history.
+const RECENCY =
+  'RECENCY: Prioritise the most recent available information — roughly the last two years (2024-2026). Use current figures and developments, state the year for any figure, and prefer recent facts over historical background. Flag anything you are unsure is current with "(estimated)".';
 
 // Synthesis (executive summary card) is on by default — set ENABLE_SYNTHESIS=false
 // to disable. Framing (a shared-context pre-step) stays opt-in via ENABLE_FRAMING=true
@@ -64,7 +69,7 @@ async function runAgent(agent, buildArgs) {
   try {
     const result = await callModel({
       candidates: agent.candidates,
-      system: agent.system,
+      system: `${agent.system}\n\n${RECENCY}`,
       prompt: agent.buildPrompt(...buildArgs),
       // Framing returns prose; every other agent must return strict JSON.
       jsonMode: agent.kind !== 'framing',
@@ -170,6 +175,15 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     })),
   });
 
+  // ── Overview (runs alongside the domains; grounded in the brief) ──
+  // Company → a short summary; Sector → current trends + recent news.
+  const overviewPromise = runOverview(mode, query, country, framing)
+    .then((ov) => {
+      if (ov) emit('overview', { overview: ov });
+      return ov;
+    })
+    .catch(() => null);
+
   // ── 1. Framing (opt-in) — only if grounding didn't already supply context ──
   if (ENABLE_FRAMING && !framing) {
     emit('agent:running', { key: 'framing', label: FRAMING_AGENT.label });
@@ -225,8 +239,60 @@ export async function runAnalysis(mode, query, emit, options = {}) {
     }
   }
 
-  emit('complete', { analysis, synthesis, meta, sources, sourcesVia });
-  return { analysis, synthesis, meta, sources, sourcesVia };
+  const overview = await overviewPromise;
+
+  emit('complete', { analysis, synthesis, meta, sources, sourcesVia, overview });
+  return { analysis, synthesis, meta, sources, sourcesVia, overview };
+}
+
+// Company → a brief prose summary. Sector → current trends + recent news.
+// Grounded in the brief gathered during the grounding step.
+export async function runOverview(mode, query, country, brief) {
+  const geo = mode === 'sector' && country && country !== 'Global' ? ` in ${country}` : '';
+  const context = brief ? `\n\nGrounded briefing (use for accuracy):\n${brief}` : '';
+
+  // Coerce items to clean single-line strings (models sometimes return objects).
+  const toText = (v) => {
+    if (typeof v === 'string') return v.trim();
+    if (v && typeof v === 'object') {
+      const head = v.title || v.name || v.headline || '';
+      const date = v.date ? ` (${v.date})` : '';
+      const desc = v.description || v.detail || v.summary || '';
+      const s = `${head}${date}${desc ? ` — ${desc}` : ''}`.trim();
+      return s || Object.values(v).filter((x) => typeof x === 'string').join(' — ');
+    }
+    return String(v ?? '').trim();
+  };
+  const arr = (v) => (Array.isArray(v) ? v.map(toText).filter(Boolean) : []);
+
+  if (mode === 'sector') {
+    const shape = JSON.stringify({ trends: ['string'], recentNews: ['string'] }, null, 2);
+    const r = await callModel({
+      candidates: candidatesPreferring('groq'),
+      system: `You are a sector analyst. Respond with ONLY a valid JSON object — no prose, no markdown fences. Each array item MUST be a single plain-text sentence (a string), never an object.\n\n${RECENCY}`,
+      prompt: `For the "${query}" sector/industry${geo}: list CURRENT TRENDS (structural shifts, technology, demand) and RECENT NEWS / developments. Base RECENT NEWS on the grounded briefing below and prefer verifiable, dated developments — do NOT fabricate news or invent deals; if unsure, include fewer items or label "(estimated)". 3-5 items each, one concise sentence per item.${context}\n\nReturn ONLY this JSON (each value an array of strings):\n\n${shape}`,
+      jsonMode: true,
+      timeoutMs: 25000,
+      maxTokens: 700,
+    });
+    const p = parseJson(r.text);
+    const trends = arr(p?.trends);
+    const recentNews = arr(p?.recentNews);
+    if (trends.length === 0 && recentNews.length === 0) return null;
+    return { trends, recentNews };
+  }
+
+  // Company: a brief prose summary.
+  const r = await callModel({
+    candidates: candidatesPreferring('groq'),
+    system: `You are a business analyst. Write a tight, factual summary in plain prose — no markdown, no headings.\n\n${RECENCY}`,
+    prompt: `Write a brief 2-4 sentence executive summary of the company "${query}": what it does, roughly how big it is (use the latest figures), and its current market positioning. Label uncertain figures "(estimated)".${context}`,
+    jsonMode: false,
+    timeoutMs: 25000,
+    maxTokens: 260,
+  });
+  const summary = (r.text || '').trim();
+  return summary ? { summary } : null;
 }
 
 // Replay a cached analysis result as SSE events so the UI renders identically
@@ -235,6 +301,7 @@ const DOMAIN_LABELS = Object.fromEntries(DOMAIN_AGENTS.map((a) => [a.key, a.labe
 
 export function replayAnalysis(result, emit) {
   emit('sources', { sources: result.sources || [], via: result.sourcesVia || '' });
+  if (result.overview) emit('overview', { overview: result.overview });
   const keys = Object.keys(result.analysis || {});
   emit('plan', {
     query: result.query,
@@ -263,7 +330,7 @@ export async function runFramework(frameworkKey, mode, query, country = 'Global'
 
   const r = await callModel({
     candidates: candidatesPreferring('groq'),
-    system: fw.system,
+    system: `${fw.system}\n\n${RECENCY}`,
     prompt: fw.buildPrompt(mode, query, country),
     jsonMode: true,
     timeoutMs: 30000,
@@ -286,8 +353,15 @@ export async function runCanvas(query) {
   return { canvas: blocks };
 }
 
-// Structured financial snapshot for a company (numeric, for mini-charts).
+// Structured financial snapshot for a company — grounded in official/verified
+// reports (annual report / 10-K / 10-Q / investor relations). Returns the
+// numbers plus the source citations they were based on.
 export async function runFinancials(query) {
+  const grounded = await gatherFinancialSources(query).catch(() => null);
+  const context = grounded?.brief
+    ? `\n\nOfficial/verified financial data (base your numbers strictly on this):\n${grounded.brief}`
+    : '';
+
   const shape = {
     metrics: [{ label: '', value: 0, unit: '', note: '' }],
     revenueTrend: [{ period: '', value: 0 }],
@@ -295,13 +369,12 @@ export async function runFinancials(query) {
   };
   const r = await callModel({
     candidates: candidatesPreferring('groq'),
-    system:
-      'You are a financial analyst. Return ONLY a valid JSON object with numeric estimates for a company — no prose, no markdown fences. Numeric fields must be plain numbers (no currency symbols, no commas, no "%").',
-    prompt: `Provide a financial snapshot for the company "${query}".
-- metrics: 4-6 headline figures such as Revenue, Revenue Growth, Gross Margin, Net Margin, Market Cap / Valuation, Free Cash Flow. "value" is a plain number; "unit" is one of "$B", "$M", "%", "x"; "note" is "(estimated)" if uncertain else "".
-- revenueTrend: the last 3-4 fiscal years, each { "period": e.g. "FY22", "value": revenue in $B as a number }.
-- margins: Gross, Operating, Net as percentages (plain numbers).
-Use your best knowledge; estimate where needed. Return ONLY this JSON:
+    system: `You are a financial analyst. Return ONLY a valid JSON object — no prose, no markdown fences. Numeric fields must be plain numbers (no currency symbols, commas, or "%"). Base EVERY figure on official financial reports (annual report / 10-K / 10-Q / audited statements / investor relations). Prefer the provided verified data; where a figure is not from an official report, still give your best value but set its "note" to "(estimated)". Do not fabricate precise figures.\n\n${RECENCY} Use the most recent reported fiscal years.`,
+    prompt: `Provide a financial snapshot for the company "${query}", grounded in its official filings.${context}
+- metrics: 4-6 headline figures such as Revenue, Revenue Growth, Gross Margin, Net Margin, Market Cap / Valuation, Free Cash Flow. "value" is a plain number; "unit" is one of "$B", "$M", "%", "x"; "note" is the fiscal year (e.g. "FY24") when the figure is from an official report, otherwise "(estimated)".
+- revenueTrend: the last 3-4 reported fiscal years, each { "period": e.g. "FY24", "value": revenue in $B as a number }.
+- margins: Gross, Operating, Net as percentages (plain numbers), most recent fiscal year.
+Return ONLY this JSON:
 
 ${JSON.stringify(shape, null, 2)}`,
     jsonMode: true,
@@ -327,6 +400,8 @@ ${JSON.stringify(shape, null, 2)}`,
       .map((d) => ({ label: String(d.label || ''), value: num(d.value) }))
       .filter((d) => d.label && d.value !== null)
       .slice(0, 4),
+    sources: grounded?.sources || [],
+    via: grounded?.via || '',
   };
 }
 

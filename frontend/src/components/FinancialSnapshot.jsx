@@ -17,7 +17,7 @@ function fmt(value, unit) {
 
 export default function FinancialSnapshot({ data }) {
   if (!data) return null;
-  const { metrics = [], revenueTrend = [], margins = [] } = data;
+  const { metrics = [], revenueTrend = [], margins = [], sources = [], via = '' } = data;
   const maxRev = Math.max(...revenueTrend.map((d) => d.value), 1);
 
   return (
@@ -73,7 +73,26 @@ export default function FinancialSnapshot({ data }) {
         )}
       </div>
 
-      <p className="bmc-note">Figures are model estimates — verify against filings before use.</p>
+      {sources.length > 0 && (
+        <details className="sources" open>
+          <summary className="sources-summary">
+            Financial sources <span className="sources-count">{sources.length}</span>
+          </summary>
+          <ol className="sources-list">
+            {sources.map((s, i) => (
+              <li key={i}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+              </li>
+            ))}
+          </ol>
+          <p className="sources-note">
+            Grounded in reports via {via || 'web search'} · <span className="est-badge">est.</span> = not from an official filing
+          </p>
+        </details>
+      )}
+      <p className="bmc-note">
+        Figures grounded in company reports where available; others are model estimates — verify against filings before use.
+      </p>
     </div>
   );
 }
